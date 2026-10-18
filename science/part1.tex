@@ -1,0 +1,346 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[german]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tikz}
+
+\geometry{margin=2.5cm}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{beispiel}{Beispiel}
+\newtheorem{satz}{Satz}
+\newtheorem{lemma}{Lemma}
+\newtheorem{korollar}{Korollar}
+\newtheorem{bemerkung}{Bemerkung}
+
+\setlist[itemize,1]{label=--}
+
+\DeclareMathOperator{\popcnt}{popcnt}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+
+% ---------- Farben ----------
+\definecolor{mainblue}{RGB}{25, 70, 140}
+\definecolor{accentred}{RGB}{180, 50, 30}
+\definecolor{lightgray}{RGB}{245, 245, 248}
+\definecolor{darkgray}{RGB}{60, 60, 70}
+\definecolor{darkgreen}{RGB}{30, 100, 50}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=mainblue,
+	citecolor=accentred,
+	urlcolor=mainblue
+}
+
+%  Code-Highlighting
+\lstset{
+	basicstyle=\ttfamily\small,
+	keywordstyle=\color{blue},
+	commentstyle=\color{gray},
+	stringstyle=\color{red},
+	numbers=left,
+	numberstyle=\tiny,
+	breaklines=true,
+	frame=single,
+	literate=%
+	{Ö}{{\"O}}1
+	{Ä}{{\"A}}1
+	{Ü}{{\"U}}1
+	{ß}{{\ss}}1
+	{ü}{{\"u}}1
+	{ä}{{\"a}}1
+	{ö}{{\"o}}1
+	{Σ}{{$\Sigma$}}1
+	{→}{{$\rightarrow$}}1
+	{⊆}{{$\subseteq$}}1
+	{⊇}{{$\supseteq$}}1
+	{≥}{{$\geq$}}1
+}
+
+\title{Der Subnetting Algorithmus sbntgg}
+\author{Stephan Epp}
+\date{18. Oktober 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+Der Subnetting Algorithmus \texttt{sbntgg} (Kommandozeilenprogramm \texttt{subnetplan}) teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf und erzeugt aus einer Zugriffsmatrix Firewall-Regeln für \texttt{iptables}, \texttt{nftables} und Cisco-ACLs.
+Die Arbeit definiert das Problem formal, beweist die Korrektheit der Zuteilung (Ausrichtung, Überlappungsfreiheit, Kapazitätsgarantie), zeigt, dass die Strategie \glqq größte Blöcke zuerst\grqq{} lückenlos und unter allen Anordnungen optimal ist, charakterisiert die freien Restbereiche exakt und beweist, dass sich jede Wachstumsreserve ohne Umnummerierung nutzen lässt, sobald ihre Gesamtgröße in den freien Adressraum passt.
+Für die Firewall-Regeln wird ein Default-Deny-Satz bewiesen.
+Die Laufzeit des Kerns beträgt $\Theta(n\log n + a)$ im Vergleichsmodell und ist damit optimal.
+Ein ausführlich erklärtes Konfigurationsbeispiel, eine Einführung in das Subnetting für Schülerinnen und Schüler sowie ein umfangreicher Ausblick ergänzen die Arbeit.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Einführung}
+
+Der Subnetting Algorithmus \texttt{sbntgg} ist ein deterministischer Algorithmus zur automatischen Planung von IP-Netzen. Aus einer Konfigurationsdatei mit einem zugewiesenen Adressbereich (dem \emph{Basisnetz}) und einer Liste von Gruppen (zum Beispiel \glqq Entwicklung\grqq, \glqq HR\grqq, \glqq Drucker\grqq) berechnet er für jede Gruppe ein eigenes Subnetz mit VLAN-ID, Gateway und Wachstumsreserve. Optional erzeugt er aus der Zugriffsmatrix der Gruppen ein Regelwerk für Firewalls.
+
+\subsection{Problemstellung}
+
+Gegeben sind ein Basisnetz $B$ (IPv4 oder IPv6), $n$ Gruppen $g_1,\ldots,g_n$ mit jeweils $h_i$ Hosts, ein Wachstumsfaktor $\gamma \ge 1$, eine Strategie (\code{vlsm} oder \code{fixed}), eine Gateway-Position (\code{first}, \code{last} oder \code{none}) sowie pro Gruppe optional eine VLAN-ID, eine Priorität und eine Menge von Gruppen, auf die sie zugreifen darf.
+
+\textbf{Ziel:} Bestimme für jede Gruppe ein Subnetz innerhalb von $B$, sodass alle Subnetze paarweise überlappungsfrei sind, jedes Subnetz mindestens $\lceil \gamma h_i \rceil$ nutzbare Host-Adressen besitzt und jede Gruppe eine eindeutige VLAN-ID erhält.
+
+\textbf{Ergebnis:}
+\begin{itemize}
+	\item Wenn die Summe der benötigten Blockgrößen in $B$ passt: Gib den Plan aus (Subnetze, Gateways, Host-Bereiche, freie Restbereiche) und, falls gewünscht, Firewall-Regeln.
+	\item Wenn die Summe nicht in $B$ passt: Brich mit einer Fehlermeldung zum Platzmangel ab und gib keinen Plan aus (Satz~\ref{satz:existenz} zeigt, dass dann auch jedes andere Verfahren scheitern muss).
+	\item Wenn die Konfiguration ungültig ist (unbekannte Schlüssel, doppelte Namen oder VLAN-IDs, unbekannte Zugriffsziele): Brich ebenfalls mit einer Fehlermeldung ab.
+	\item Wenn \code{access} leer ist: Die Gruppe erhält keinen Zugriff auf interne Netze.
+\end{itemize}
+
+\subsection{Motivation}
+
+Die manuelle Planung von Subnetzen ist fehleranfällig: Netze überlappen sich, Blockgrenzen werden falsch berechnet, VLAN-IDs doppelt vergeben, und das Wachstum der Gruppen wird vergessen. Gleichzeitig wird die Zugriffsmatrix \glqq wer darf auf wen\grqq{} meist getrennt vom Adressplan in Firewall-Regeln übersetzt, wodurch Plan und Regeln auseinanderlaufen. \texttt{sbntgg} berechnet beides aus einer einzigen Quelle.
+
+Eine besondere Verbindung besteht zum Subgraph Algorithmus: Die Zugriffsmatrix ist die Adjazenzmatrix eines gerichteten Graphen über den Gruppen (Abschnitt~\ref{sec:subgraph-verbindung}). Der Vergleich zweier Richtlinien ist damit ein Subgraph-Problem.
+
+\subsection{Aufbau der Arbeit}
+
+Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 fasst zusammen und gibt einen ausführlichen Ausblick.
+
+\section{Grundlagen}
+
+\subsection{Subnetting leicht erklärt}
+\label{sec:leicht}
+
+Dieser Abschnitt ist so geschrieben, dass er auch in einer Realschulklasse (etwa im Informatikunterricht ab Klasse~8) verstanden werden kann. Es wird nur Rechnen mit Zweierpotenzen benötigt.
+
+\subsubsection{Was ist eine IP-Adresse?}
+
+Jedes Gerät in einem Netzwerk (Computer, Handy, Drucker) braucht eine Adresse, damit Nachrichten ankommen, so wie ein Haus eine Hausnummer braucht, damit der Briefträger es findet. Eine IPv4-Adresse besteht aus vier Zahlen zwischen 0 und 255, getrennt durch Punkte, zum Beispiel \texttt{10.20.1.130}.
+
+Warum nur bis 255? Jede der vier Zahlen besteht aus 8 \emph{Bit}. Ein Bit ist eine Stelle, die 0 oder 1 sein kann. Mit 8 Bit gibt es $2^8 = 256$ Möglichkeiten, also die Zahlen 0 bis 255. Eine ganze Adresse hat $4\cdot 8 = 32$ Bit und damit $2^{32} = 4\,294\,967\,296$ mögliche Adressen.
+
+\subsubsection{Das Dualsystem in einer Minute}
+
+Computer rechnen mit Zweierpotenzen. Jede Stelle einer Dualzahl hat einen Wert, der doppelt so groß ist wie die Stelle rechts davon:
+\begin{center}
+\begin{tabular}{lcccccccc}
+\toprule
+Stellenwert & 128 & 64 & 32 & 16 & 8 & 4 & 2 & 1 \\
+\midrule
+$10$ & 0 & 0 & 0 & 0 & 1 & 0 & 1 & 0 \\
+$130$ & 1 & 0 & 0 & 0 & 0 & 0 & 1 & 0 \\
+$192$ & 1 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \\
+$224$ & 1 & 1 & 1 & 0 & 0 & 0 & 0 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Zum Beispiel ist $130 = 128 + 2$, also steht eine 1 bei 128 und eine 1 bei 2.
+
+\subsubsection{Netz und Host: Straße und Hausnummer}
+
+Eine Adresse besteht aus zwei Teilen: einem \emph{Netzteil} (die Straße) und einem \emph{Hostteil} (die Hausnummer in dieser Straße). Der Zusatz hinter dem Schrägstrich, etwa \texttt{/26}, sagt, wie viele der 32 Bit zum Netzteil gehören. Das ist die \emph{Präfixlänge}. Die übrigen Bit sind der Hostteil.
+
+Beim Netz \texttt{10.20.1.128/26} gehören 26 Bit zur Straße. Für die Hausnummern bleiben $32-26 = 6$ Bit, also $2^6 = 64$ Adressen. Wichtig ist: \textbf{Je größer die Zahl hinter dem Schrägstrich, desto kleiner das Netz.}
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+Präfix & Hostbits & Adressen im Netz & Subnetzmaske \\
+\midrule
+\texttt{/24} & 8 & 256 & \texttt{255.255.255.0} \\
+\texttt{/25} & 7 & 128 & \texttt{255.255.255.128} \\
+\texttt{/26} & 6 & 64 & \texttt{255.255.255.192} \\
+\texttt{/27} & 5 & 32 & \texttt{255.255.255.224} \\
+\texttt{/28} & 4 & 16 & \texttt{255.255.255.240} \\
+\texttt{/29} & 3 & 8 & \texttt{255.255.255.248} \\
+\texttt{/30} & 2 & 4 & \texttt{255.255.255.252} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Die \emph{Subnetzmaske} ist dieselbe Information anders geschrieben: so viele Einsen von links, wie das Präfix lang ist. Bei \texttt{/26} sind das 26 Einsen, im letzten Byte \texttt{11000000}, das ist $128 + 64 = 192$.
+
+\subsubsection{Drei besondere Adressen}
+
+In jedem Netz sind einige Adressen nicht für normale Geräte frei:
+\begin{itemize}
+	\item Die \textbf{Netzadresse} (die erste Adresse) ist das Straßenschild. Sie benennt das ganze Netz.
+	\item Die \textbf{Broadcast-Adresse} (die letzte Adresse) ist die Lautsprecherdurchsage \glqq an alle in dieser Straße\grqq.
+	\item Das \textbf{Gateway} ist das Tor aus der Straße hinaus in andere Straßen und ins Internet. Man legt es üblicherweise auf die erste oder letzte freie Adresse.
+\end{itemize}
+Von den Adressen eines Netzes gehen also bis zu drei für Geräte verloren. Ein \texttt{/28} hat 16 Adressen, davon sind $16 - 3 = 13$ für Geräte nutzbar.
+
+\subsubsection{Das Rezept: Wie groß muss das Netz sein?}
+
+Beispiel: In der Gruppe \glqq Drucker\grqq{} stehen 12 Geräte, und es soll 25\,\% Platz für Wachstum geben (Faktor $1{,}25$).
+\begin{enumerate}
+	\item Geräte: $12$.
+	\item Mit Wachstum: $12 \cdot 1{,}25 = 15$ (bei Kommazahlen wird aufgerundet).
+	\item Plus drei Sonderadressen: $15 + 3 = 18$.
+	\item Die nächste Zweierpotenz, die mindestens 18 ist: $2^5 = 32$ (denn $2^4 = 16$ ist zu klein).
+	\item Hostbits sind $5$, also ist das Präfix $32 - 5 = 27$. Das Netz ist ein \texttt{/27}.
+\end{enumerate}
+Probe: Ein \texttt{/27} hat 32 Adressen, davon sind $32-3 = 29$ nutzbar. Das ist mehr als 15. Ein \texttt{/28} hätte nur 13 nutzbare Adressen gehabt, zu wenig.
+
+\subsubsection{Die Schokoladentafel: Warum Zweierpotenzen?}
+
+Stell dir eine Schokoladentafel vor, die nur in der Mitte gebrochen werden kann. Jede Hälfte hat wieder eine Mitte, und so fort. So entstehen immer Stücke mit $1, 2, 4, 8, \dots$ Teilen, niemals Stücke mit 3 oder 5 Teilen. Genau so werden Adressbereiche geteilt (Abbildung~\ref{fig:halbierung}): Jede Halbierung erhöht das Präfix um 1.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,
+	blk/.style={draw,minimum height=0.7cm,inner sep=0pt,font=\footnotesize,fill=lightgray}]
+	% Ebene /24
+	\node[blk,minimum width=12.8cm,fill=mainblue!15] at (6.4,3.2) {\texttt{/24}: 256 Adressen};
+	% Ebene /25
+	\node[blk,minimum width=6.4cm,fill=mainblue!10] at (3.2,2.2) {\texttt{/25}: 128};
+	\node[blk,minimum width=6.4cm,fill=mainblue!10] at (9.6,2.2) {\texttt{/25}: 128};
+	% Ebene /26
+	\foreach \i in {0,1,2,3}{
+		\node[blk,minimum width=3.2cm,fill=mainblue!6] at (1.6+3.2*\i,1.2) {\texttt{/26}: 64};
+	}
+	% Ebene /27
+	\foreach \i in {0,...,7}{
+		\node[blk,minimum width=1.6cm,fill=white] at (0.8+1.6*\i,0.2) {\texttt{/27}: 32};
+	}
+\end{tikzpicture}
+\caption{Jede Halbierung verdoppelt die Anzahl der Blöcke und halbiert ihre Größe. Ein Block beginnt immer an einer \glqq Rille\grqq.}
+\label{fig:halbierung}
+\end{figure}
+
+Daraus folgen zwei Regeln, die der Algorithmus befolgt:
+\begin{enumerate}
+	\item Ein Netz darf nur dort beginnen, wo eine \glqq Rille\grqq{} ist (\emph{Ausrichtung}). Ein \texttt{/27} mit 32 Adressen kann bei den Adressen $0, 32, 64, \dots$ beginnen, aber nicht bei 40.
+	\item Man legt \textbf{die großen Stücke zuerst} und die kleinen danach. Dann bleiben keine Lücken, weil jedes kleinere Stück genau dort beginnen kann, wo das vorige aufhört.
+\end{enumerate}
+
+\begin{beispiel}[Eine Schule mit \texttt{192.168.0.0/24}]
+	Die Schule hat 256 Adressen. Es gibt 100 Schüler-PCs, 25 Lehrer-PCs und 10 Verwaltungs-PCs, ohne Wachstumsreserve und mit Gateway. Das Programm rechnet:
+	\begin{center}
+	\begin{tabular}{lrrrrl}
+	\toprule
+	Gruppe & Geräte & $+3$ & Zweierpotenz & Präfix & Netz \\
+	\midrule
+	Schüler & 100 & 103 & $128 = 2^7$ & \texttt{/25} & \texttt{192.168.0.0/25} \\
+	Lehrer & 25 & 28 & $32 = 2^5$ & \texttt{/27} & \texttt{192.168.0.128/27} \\
+	Verwaltung & 10 & 13 & $16 = 2^4$ & \texttt{/28} & \texttt{192.168.0.160/28} \\
+	\bottomrule
+	\end{tabular}
+	\end{center}
+	Die Schüler (das größte Netz) kommen zuerst: Adressen 0 bis 127. Danach folgen die Lehrer ab 128 bis 159 und die Verwaltung ab 160 bis 175. Belegt sind $128 + 32 + 16 = 176$ von 256 Adressen ($68{,}75\,\%$), frei sind die 80 Adressen \texttt{192.168.0.176/28} und \texttt{192.168.0.192/26}.
+\end{beispiel}
+
+\subsubsection{Wozu das Ganze?}
+
+\begin{itemize}
+	\item \textbf{Ordnung:} Jede Abteilung hat ihren eigenen Bereich, und man erkennt an der Adresse, wohin ein Gerät gehört.
+	\item \textbf{Sicherheit:} Gäste-WLAN und Server liegen in verschiedenen Netzen. Eine Firewall entscheidet, wer von wo nach wo darf.
+	\item \textbf{Geschwindigkeit:} Eine Durchsage (Broadcast) erreicht nur die Geräte im eigenen kleinen Netz und nicht den ganzen Betrieb.
+	\item \textbf{Wachstum:} Freie Bereiche bleiben für neue Gruppen übrig.
+\end{itemize}
+
+\paragraph{Kontrollfragen.} (1) Wie viele Adressen hat ein \texttt{/29}? ($2^3 = 8$.) (2) Wie viele davon sind für Geräte nutzbar, wenn es Netzadresse, Broadcast und Gateway gibt? ($8-3=5$.) (3) Welches Präfix braucht man für 50 Geräte ohne Reserve? ($50+3 = 53 \le 64 = 2^6$, also \texttt{/26}.)
+
+\subsection{Formale Definitionen}
+
+Im Folgenden bezeichnet $w \in \{32, 128\}$ die Adressbreite (IPv4 beziehungsweise IPv6). Adressen werden als ganze Zahlen identifiziert.
+
+\begin{definition}[Adressraum und Block]
+	Der Adressraum ist $\mathcal{A}_w = \{0, 1, \ldots, 2^w - 1\}$. Für eine Präfixlänge $p \in \{0,\ldots,w\}$ und eine Adresse $a \in \mathcal{A}_w$ mit $2^{w-p} \mid a$ heißt
+	\[
+	N(a,p) = \{a, a+1, \ldots, a + 2^{w-p} - 1\}
+	\]
+	ein \emph{Block} (CIDR-Block) der Präfixlänge $p$. Er hat die Größe $|N(a,p)| = 2^{w-p}$, die \emph{Netzadresse} $a$ und die \emph{letzte Adresse} $a + 2^{w-p} - 1$. Die Bedingung $2^{w-p} \mid a$ heißt \emph{Ausrichtung}.
+\end{definition}
+
+\begin{lemma}[Laminarität]
+\label{lem:laminar}
+	Zwei Blöcke $N_1 = N(a_1,p_1)$ und $N_2 = N(a_2,p_2)$ mit $p_1 \ge p_2$ sind entweder disjunkt oder es gilt $N_1 \subseteq N_2$. Bei $p_1 = p_2$ sind sie gleich oder disjunkt.
+\end{lemma}
+
+\begin{proof}
+	Sei $q_i = w - p_i$, also $q_1 \le q_2$. Wegen der Ausrichtung ist $N_i = \{x : \lfloor x / 2^{q_i} \rfloor = a_i / 2^{q_i}\}$. Gilt $N_1 \cap N_2 \neq \emptyset$, so gibt es ein $x$ in beiden Mengen. Für jedes $y \in N_1$ gilt $\lfloor y/2^{q_1}\rfloor = a_1/2^{q_1} = \lfloor x/2^{q_1}\rfloor$. Mit der Identität $\lfloor \lfloor z/m \rfloor / k \rfloor = \lfloor z/(mk) \rfloor$ für natürliche $m,k$ folgt
+	\[
+	\left\lfloor \frac{y}{2^{q_2}} \right\rfloor = \left\lfloor \frac{\lfloor y/2^{q_1}\rfloor}{2^{q_2-q_1}} \right\rfloor = \left\lfloor \frac{\lfloor x/2^{q_1}\rfloor}{2^{q_2-q_1}} \right\rfloor = \left\lfloor \frac{x}{2^{q_2}} \right\rfloor = \frac{a_2}{2^{q_2}},
+	\]
+	also $y \in N_2$. Somit $N_1 \subseteq N_2$. Bei $p_1 = p_2$ gilt zusätzlich $N_2 \subseteq N_1$ mit demselben Argument, also $N_1 = N_2$.
+\end{proof}
+
+\begin{definition}[Gruppe, Konfiguration]
+	Eine \emph{Gruppe} ist ein Tupel $g = (\text{name}, h, v, \pi, \text{acc})$ mit Namen, Hostzahl $h \in \mathbb{N}_{\ge 1}$, optionaler VLAN-ID $v \in \{1,\ldots,4094\}$, Priorität $\pi \in \mathbb{N}_0$ (Standard $0$) und einer Liste $\text{acc}$ von Gruppennamen (Standard: leer). Eine \emph{Konfiguration} besteht aus einem Basisnetz $B = N(a_B, p_B)$, einer Liste $g_1,\ldots,g_n$ ($n \ge 1$) von Gruppen mit paarweise verschiedenen Namen, einem Wachstumsfaktor $\gamma \ge 1$, einer Strategie $\in \{\text{vlsm}, \text{fixed}\}$ und einer Gateway-Position $\in \{\text{first}, \text{last}, \text{none}\}$. Die Reihenfolge der Liste ist die \emph{Dateireihenfolge}.
+\end{definition}
+
+\begin{definition}[Bedarf, Blockexponent]
+\label{def:bedarf}
+	Der \emph{Overhead} ist $o = 2 + [\text{gw} \ne \text{none}]$ für IPv4 und $o = 1 + [\text{gw} \ne \text{none}]$ für IPv6, wobei $[\cdot]$ die Iverson-Klammer ist (IPv6 kennt keine Broadcast-Adresse). Der \emph{Bedarf} der Gruppe $g_i$ ist
+	\[
+	r_i = \lceil \gamma h_i \rceil + o.
+	\]
+	Der \emph{Blockexponent} ist $k_i = \lceil \log_2 r_i \rceil$, die \emph{Blockgröße} $s_i = 2^{k_i}$ und die \emph{Präfixlänge} $p_i = w - k_i$. Ferner sei $S = \sum_{i=1}^{n} s_i$.
+\end{definition}
+
+\begin{definition}[Subnetz]
+\label{def:subnetz}
+	Ein \emph{Subnetz} der Gruppe $g_i$ ist ein Block $N = N(a,p)$ mit $s = 2^{w-p}$ zusammen mit folgenden ausgezeichneten Adressen (Netzadresse $a$ und, nur IPv4, Broadcast $a+s-1$):
+	\begin{center}
+	\begin{tabular}{lcccc}
+	\toprule
+	Gateway-Position & Gateway & erster Host & letzter Host (IPv4) & letzter Host (IPv6) \\
+	\midrule
+	\code{none}  & -- & $a+1$ & $a+s-2$ & $a+s-1$ \\
+	\code{first} & $a+1$ & $a+2$ & $a+s-2$ & $a+s-1$ \\
+	\code{last}  & $a+s-2$ (IPv4), $a+s-1$ (IPv6) & $a+1$ & $a+s-3$ & $a+s-2$ \\
+	\bottomrule
+	\end{tabular}
+	\end{center}
+	Die Anzahl \emph{nutzbarer Hosts} ist $u = (\text{letzter Host}) - (\text{erster Host}) + 1$.
+\end{definition}
+
+\begin{lemma}[Nutzbare Hosts]
+\label{lem:usable}
+	Für jedes Subnetz der Größe $s$ gilt $u = s - o$. Ist $s \ge r_i$, so gilt $u \ge \lceil \gamma h_i \rceil \ge 1$.
+\end{lemma}
+
+\begin{proof}
+	IPv4 ohne Gateway: $u = (a+s-2) - (a+1) + 1 = s - 2 = s - o$. IPv4 mit Gateway (\code{first}): $u = (a+s-2) - (a+2) + 1 = s-3 = s - o$; (\code{last}): $u = (a+s-3) - (a+1) + 1 = s - 3 = s-o$. IPv6 ohne Gateway: $u = (a+s-1) - (a+1) + 1 = s-1 = s-o$; mit Gateway: $u = s-2 = s-o$ in beiden Positionen. Ist $s \ge r_i = \lceil\gamma h_i\rceil + o$, so folgt $u = s - o \ge \lceil\gamma h_i\rceil$, und $\lceil \gamma h_i \rceil \ge 1$ wegen $\gamma h_i \ge h_i \ge 1$.
+\end{proof}
+
+\begin{definition}[Plan]
+	Ein \emph{Plan} ist eine Liste von Subnetzen $(N_1,\ldots,N_n)$ (in Adressreihenfolge ausgegeben) mit zugehörigen VLAN-IDs, zusammen mit der Liste der \emph{freien Bereiche}, einer Zerlegung von $B \setminus \bigcup_i N_i$ in Blöcke. Die \emph{belegten Adressen} sind $\sum_i |N_i|$, die \emph{freien Adressen} sind $F = |B| - \sum_i |N_i|$ und die \emph{Auslastung} ist $100 \cdot \sum_i |N_i| / |B|$ Prozent.
+\end{definition}
+
+\begin{definition}[Zugriffsmatrix und Zugriffsgraph]
+\label{def:zugriff}
+	Die \emph{Zugriffsmatrix} ist die Matrix $Z \in \{0,1\}^{n\times n}$ mit $Z_{ij} = 1$ genau dann, wenn der Name von $g_j$ in $\text{acc}(g_i)$ vorkommt. Der \emph{Zugriffsgraph} ist der gerichtete Graph $G_Z = (V,E)$ mit $V = \{g_1,\ldots,g_n\}$ und $E = \{(g_i,g_j) : Z_{ij} = 1\}$ (vgl.\ die Definition der Adjazenzmatrix im Subgraph Algorithmus). Die Menge der \emph{Zugriffspaare} ist $P = \{(i,j) : Z_{ij} = 1,\ i \neq j\}$.
+\end{definition}
+
+\subsection{Grundidee}
+
+Der Algorithmus basiert auf drei zentralen Konzepten.
+
+\subsubsection{Blockgrößen als Zweierpotenzen}
+
+Jede Gruppe erhält den kleinsten Block, der ihren Bedarf fasst. Blöcke sind nach Lemma~\ref{lem:laminar} entweder disjunkt oder ineinander enthalten. Das macht die Überlappungsfreiheit zu einer reinen Frage der Startadressen.
+
+\subsubsection{Größte Blöcke zuerst (VLSM)}
+
+\emph{Variable Length Subnet Masks} (VLSM) bedeutet, dass Subnetze unterschiedlich groß sein dürfen. Werden die Blöcke nach absteigender Größe hintereinander gelegt, ist jede Startadresse automatisch ausgerichtet (Satz~\ref{satz:luecke}). Es entstehen keine Lücken und der Platzbedarf ist minimal (Satz~\ref{satz:kompakt}).
+
+\begin{beispiel}
+	Für $n=3$ Gruppen mit Blockgrößen $32, 256, 64$ (aufsteigend in Dateireihenfolge) liefert die Sortierung die Reihenfolge $256, 64, 32$ und damit die Startadressen $0, 256, 320$. In aufsteigender Reihenfolge ($32, 64, 256$) lägen die Startadressen bei $0, 64, 256$ und der letzte Block endet erst bei $512$ statt bei $352$.
+\end{beispiel}
+
+\subsubsection{Firewall-Regeln aus der Zugriffsmatrix}
+
+Alles, was nicht ausdrücklich in \code{access} freigegeben ist, wird verworfen (Default-Deny). Jedes Zugriffspaar $(i,j) \in P$ ergibt genau eine Freigabe vom Subnetz $N_i$ in das Subnetz $N_j$ (Satz~\ref{satz:firewall}).
+

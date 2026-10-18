@@ -1,0 +1,278 @@
+\section{Algorithmus}
+
+\subsection{Algorithmus-Beschreibung}
+
+Der Algorithmus arbeitet in sechs Schritten:
+
+\textbf{Schritt 1: Einlesen und Validieren}
+
+Lies die YAML- oder JSON-Datei, wende die Kommandozeilen-Überschreibungen (\code{--base-network}, \code{--growth-factor}, \code{--strategy}, \code{--gateway}) an und prüfe: nur bekannte Schlüssel, $\gamma \ge 1$, Basisnetz streng gültig (Hostbits null), $h_i \ge 1$, VLAN-IDs in $\{1,\ldots,4094\}$ und paarweise verschieden, Gruppennamen eindeutig und nur aus Buchstaben, Ziffern, \texttt{\_}, \texttt{-} und Leerzeichen, alle \code{access}-Einträge nennen existierende Gruppen.
+
+\textbf{Schritt 2: Bedarf und Präfixlänge}
+
+Berechne für jede Gruppe $r_i = \lceil\gamma h_i\rceil + o$ und die kleinste Präfixlänge $p_i = w - \lceil \log_2 r_i \rceil$.
+
+\textbf{Schritt 3: VLAN-IDs und Reihenfolge}
+
+Übernimm explizite VLAN-IDs, vergib fehlende automatisch ($10, 20, 30, \ldots$), und bestimme die Zuteilungsreihenfolge: bei \code{vlsm} nach $(p_i, \pi_i)$ lexikographisch aufsteigend, bei \code{fixed} nach $\pi_i$ mit einheitlicher Präfixlänge $\min_i p_i$. Gleiche Schlüssel behalten ihre Dateireihenfolge.
+
+\textbf{Schritt 4: Zuteilung}
+
+Setze einen Zeiger $c := a_B$. Für jede Gruppe in der Reihenfolge: runde $c$ auf die nächste Blockgrenze auf, lege dort den Block an und setze $c$ hinter den Block. Passt der Block nicht mehr in $B$, brich mit Platzmangel ab.
+
+\textbf{Schritt 5: Freie Bereiche}
+
+Zerlege $B \setminus \bigcup_i N_i$ in die minimale Anzahl von Blöcken.
+
+\textbf{Schritt 6: Ausgabe und Firewall}
+
+Gib den Plan als Tabelle, CSV oder JSON aus und erzeuge optional aus den Zugriffspaaren Regeln für \code{iptables}, \code{nftables} oder Cisco.
+
+\subsection{Bedarf und Präfixlänge}
+
+\begin{lemma}[Bitlänge und Logarithmus]
+\label{lem:bitlen}
+	Für ganze $r \ge 1$ gilt $(r-1).\mathrm{bit\_length}() = \lceil \log_2 r \rceil$.
+\end{lemma}
+
+\begin{proof}
+	Für ganze $m \ge 0$ ist $m.\mathrm{bit\_length}() = \min\{k \ge 0 : m < 2^k\}$. Mit $m = r-1$ folgt $\min\{k \ge 0: r-1 < 2^k\} = \min\{k \ge 0 : r \le 2^k\} = \lceil \log_2 r \rceil$, denn $r \le 2^k$ ist äquivalent zu $\log_2 r \le k$.
+\end{proof}
+
+\begin{satz}[Minimalität des Blocks]
+\label{satz:minimal}
+	Sei $r \ge 1$ und $k = \lceil\log_2 r\rceil$. Dann ist $2^k$ die kleinste Zweierpotenz, die mindestens $r$ ist, und es gilt $r \le 2^k < 2r$. Der Block der Präfixlänge $p = w - k$ ist daher der kleinste Block, der $r$ Adressen fasst. Die Berechnung ist genau dann möglich, wenn $r \le 2^w$ (sonst wäre $p<0$).
+\end{satz}
+
+\begin{proof}
+	Nach Definition gilt $2^k \ge r$, und für $k' < k$ gilt $2^{k'} \le 2^{k-1} < r$ (denn $k-1 < \log_2 r$). Also ist $2^k$ die kleinste Zweierpotenz mit $2^k \ge r$. Für $k = 0$ ist $r = 1$ und $2^k = 1 < 2$. Für $k\ge 1$ gilt $2^{k-1} < r$, also $2^k < 2r$. Die Größe eines Blocks der Präfixlänge $p$ ist $2^{w-p}$, daher fasst er genau dann $r$ Adressen, wenn $2^{w-p} \ge r$, also $w - p \ge k$, und das kleinste solche $w-p$ ist $k$. Es ist $p = w-k \ge 0$ genau dann, wenn $k \le w$, also wenn $r \le 2^w$.
+\end{proof}
+
+\begin{bemerkung}
+	Die Präfixlänge wird im Code als $w - (r-1).\mathrm{bit\_length}()$ berechnet (Lemma~\ref{lem:bitlen}). Dadurch entstehen weder Gleitkommafehler noch Logarithmen.
+\end{bemerkung}
+
+\begin{lemma}[Gleitkomma-Aufrundung]
+\label{lem:float}
+	Der Code berechnet $\lceil\gamma h\rceil$ als \code{math.ceil(round(h * gamma, 9))}. Hat $\gamma$ höchstens $8$ Nachkommastellen und gilt $h\gamma \le 10^6$, so ist das Ergebnis exakt $\lceil \gamma h \rceil$. Ohne das Runden ist das im Allgemeinen falsch: \code{math.ceil(100 * 1.1)} ergibt $111$ statt $110$.
+\end{lemma}
+
+\begin{proof}
+	Sei $\hat\gamma$ die nächste Gleitkommazahl zu $\gamma$ ($|\hat\gamma - \gamma| \le 2^{-53}\gamma$). Das berechnete Produkt ist $\hat x = h\hat\gamma(1+\delta)$ mit $|\delta| \le 2^{-53}$. Dann ist
+	\[
+	|\hat x - h\gamma| \le h\hat\gamma\,|\delta| + h\,|\hat\gamma-\gamma| \le h\gamma\,(1+2^{-53})\,2^{-53} + h\gamma\,2^{-53} < 2.3\cdot 10^{-16}\, h\gamma \le 2.3\cdot 10^{-10}.
+	\]
+	\emph{Fall 1:} $h\gamma = m \in \mathbb{N}$. Dann liegt $\hat x$ in $(m - 2.3\cdot10^{-10},\, m + 2.3\cdot 10^{-10})$, das Runden auf $9$ Nachkommastellen liefert $m$, und $\lceil m \rceil = m$.
+	\emph{Fall 2:} $h\gamma = N + f$ mit $N\in\mathbb{N}_0$ und $f\notin\mathbb{Z}$. Da $\gamma$ höchstens $8$ Nachkommastellen hat, ist $h\gamma$ ein Vielfaches von $10^{-8}$, also $f \in [10^{-8},\,1-10^{-8}]$. Die Abweichung durch Fehler und Runden beträgt höchstens $2.3\cdot 10^{-10} + 5\cdot10^{-10} + 10^{-10} < 10^{-8}$, daher bleibt der gerundete Wert strikt zwischen $N$ und $N+1$, und die Aufrundung liefert $N+1 = \lceil h\gamma\rceil$.
+	Für das Gegenbeispiel: In Gleitkommaarithmetik ist $100 \cdot 1.1 = 110.00000000000001$, die Aufrundung ergibt $111$.
+\end{proof}
+
+\subsection{VLAN-Vergabe}
+
+\begin{lemma}[VLAN-Vergabe]
+\label{lem:vlan}
+	Sei $U$ die Menge der explizit angegebenen VLAN-IDs (paarweise verschieden, nach Schritt 1). Die automatische Vergabe weist den Gruppen ohne explizite ID in Dateireihenfolge die kleinsten noch nicht verwendeten Werte aus $\{10,20,\ldots,4090\}$ zu. Dann gilt: (i) alle vergebenen IDs sind paarweise verschieden und liegen in $\{1,\ldots,4094\}$, (ii) explizite IDs bleiben unverändert, (iii) die Vergabe schlägt genau dann fehl, wenn mehr automatische IDs benötigt werden als $409 - |U \cap \{10,20,\ldots,4090\}|$ verfügbar sind, (iv) die Schleife führt insgesamt höchstens $409$ Erhöhungen des Kandidaten aus.
+\end{lemma}
+
+\begin{proof}
+	Die Menge \code{used} enthält zu Beginn $U$ und wird um jeden vergebenen Wert erweitert. Der Kandidat $c$ startet bei $10$ und wird nur erhöht, solange $c \in \texttt{used}$. Jeder zugewiesene Wert ist deshalb nicht in \code{used}, danach aber schon, also kann er nicht ein zweites Mal vergeben werden und kollidiert nicht mit expliziten IDs: (i), (ii). Die Werte $10, 20, \ldots, 4090$ sind $(4090-10)/10 + 1 = 409$ Stück, und $c$ nimmt nur diese Werte an, solange $c \le 4094$. Da $c$ nie sinkt und jede Erhöhung einen Wert überspringt, kann $c$ höchstens $409$ verschiedene Werte durchlaufen: (iv). Findet sich kein freier Wert $\le 4094$ mehr (der nächste Kandidat $4100$ überschreitet die Grenze), bricht die Vergabe mit einem Fehler ab: (iii).
+\end{proof}
+
+\subsection{Reihenfolge und Zuteilung}
+
+Sei $\mathrm{sz}(i) = s_i$ die Blockgröße von $g_i$. Bei \code{vlsm} ist die Zuteilungsreihenfolge die Sortierung nach $(p_i,\pi_i)$ lexikographisch aufsteigend. Wegen $p_i = w - k_i$ bedeutet kleineres $p_i$ eine größere Blockgröße, die Blöcke werden also \emph{nach absteigender Größe} angeordnet, bei gleicher Größe nach aufsteigender Priorität, bei weiterer Gleichheit nach Dateireihenfolge (die Sortierung ist stabil). Bei \code{fixed} ist die Präfixlänge einheitlich $p^* = \min_i p_i$ (größter Block), und es wird nach $\pi_i$ (stabil) sortiert.
+
+\begin{lemma}[Aufrunden auf Blockgrenzen]
+\label{lem:align}
+	Für ganze $x \ge 0$ und $m \ge 1$ gilt $-\lfloor -x/m \rfloor = \lceil x/m\rceil$. Der Ausdruck \code{-(-cursor // size) * size} ist daher das kleinste Vielfache von \code{size}, das mindestens \code{cursor} ist.
+\end{lemma}
+
+\begin{proof}
+	Es ist $\lceil y \rceil = -\lfloor -y\rfloor$ für alle reellen $y$, und die Ganzzahldivision \code{//} ist in Python die Abrundung. Das kleinste Vielfache von $m$ mit $\ge x$ ist $m\lceil x/m\rceil$.
+\end{proof}
+
+\begin{satz}[Lückenlosigkeit]
+\label{satz:luecke}
+	Seien $t_1, t_2, \ldots, t_n$ die Blockgrößen in Zuteilungsreihenfolge und gelte $t_1 \ge t_2 \ge \cdots \ge t_n$ (dies ist bei \code{vlsm} der Fall, bei \code{fixed} sind alle $t_j$ gleich). Ist $t_j \le |B|$ für alle $j$, so beginnt der $j$-te Block exakt bei $c_{j-1} = a_B + \sum_{i<j} t_i$, das Aufrunden verändert den Zeiger nie, und die belegten Adressen bilden das lückenlose Intervall $[a_B,\ a_B + \sum_i t_i)$ (soweit der Platz reicht).
+\end{satz}
+
+\begin{proof}
+	Induktion über $j$. Für $j=1$ ist der Zeiger $c_0 = a_B$ und $a_B$ ist durch $|B| = 2^{w-p_B}$ teilbar, also wegen $t_1 \le |B|$ (beides Zweierpotenzen) auch durch $t_1$. Sei die Behauptung für $j-1$ gezeigt, also $c_{j-1} = a_B + \sum_{i<j} t_i$. Es gilt $t_j \mid |B| \mid a_B$ wegen $t_j \le |B|$. Für $i < j$ gilt $t_j \mid t_i$, da beide Zweierpotenzen sind und $t_j \le t_i$. Also teilt $t_j$ die Summe $\sum_{i<j}t_i$ und damit $c_{j-1}$. Das Aufrunden (Lemma~\ref{lem:align}) lässt $c_{j-1}$ unverändert, der Block $j$ startet bei $c_{j-1}$ und endet bei $c_{j-1}+t_j - 1$; der neue Zeiger ist $c_j = c_{j-1} + t_j$.
+\end{proof}
+
+\begin{satz}[Existenz eines Plans]
+\label{satz:existenz}
+	Sei $S' = S = \sum_i s_i$ bei \code{vlsm} und $S' = n\cdot \max_i s_i$ bei \code{fixed}. Der Algorithmus bricht genau dann mit einem Platzmangel-Fehler ab, wenn $S' > |B|$. Bei \code{vlsm} existiert in diesem Fall überhaupt keine überlappungsfreie Anordnung von Blöcken der Größen $s_1,\ldots,s_n$ in $B$ (gleichgültig, mit welchem Verfahren oder in welcher Reihenfolge).
+\end{satz}
+
+\begin{proof}
+	Seien $t_1,\ldots,t_n$ die Blockgrößen in Zuteilungsreihenfolge (bei \code{fixed} alle gleich $\max_i s_i$). \emph{Fall A:} Ein $t_j > |B|$. Dann ist die Präfixlänge kleiner als $p_B$ und der Code löst die Fehlermeldung \glqq benötigt ein /$p$, das Basisnetz ist kleiner\grqq{} aus; zugleich ist $S' \ge t_j > |B|$. \emph{Fall B:} Alle $t_j \le |B|$. Nach Satz~\ref{satz:luecke} beginnt Block $j$ bei $c_{j-1}$, und die Prüfung \code{start + size - 1 > end} bedeutet $c_{j-1} + t_j - 1 > a_B + |B| - 1$, also $\sum_{i\le j} t_i > |B|$. Da die Partialsummen monoton wachsen, tritt dies für ein $j$ genau dann ein, wenn $\sum_{i\le n} t_i = S' > |B|$. Dies zeigt die Äquivalenz. Für die letzte Aussage: Paarweise disjunkte Blöcke in $B$ haben zusammen höchstens $|B|$ Adressen, also ist $S > |B|$ unmöglich.
+\end{proof}
+
+\begin{satz}[Korrektheit der Zuteilung]
+\label{satz:korrekt}
+	Bricht der Algorithmus nicht ab, so gilt für das Ergebnis:
+	\begin{enumerate}[label=(K\arabic*)]
+		\item Jedes $N_i$ ist ein ausgerichteter Block der Präfixlänge $p_i$ (bei \code{fixed}: $p^*$).
+		\item Es gilt $N_i \subseteq B$ für alle $i$.
+		\item Die Subnetze sind paarweise disjunkt.
+		\item Jedes Subnetz hat mindestens $\lceil \gamma h_i \rceil$ nutzbare Hosts.
+		\item Die Subnetze werden in streng aufsteigender Adressreihenfolge ausgegeben.
+		\item Bei \code{vlsm} ist $N_i$ der \emph{kleinste} Block mit (K4), das heißt kein Block mit weniger Adressen erfüllt (K4).
+	\end{enumerate}
+\end{satz}
+
+\begin{proof}
+	(K1) Nach Satz~\ref{satz:luecke} beginnt Block $j$ bei $c_{j-1}$, das durch $t_j$ teilbar ist; das ist die Ausrichtung. (K2) Es ist $c_{j-1} \ge a_B$, und die Prüfung gegen \code{end} schließt ein Überschreiten aus. (K3) und (K5) Die Intervalle $[c_{j-1}, c_{j-1}+t_j)$ für $j=1,\ldots,n$ sind nach Konstruktion hintereinander angeordnet und überlappen nicht. (K4) Nach Lemma~\ref{lem:usable} gilt $u = s - o \ge \lceil\gamma h_i\rceil$ für $s \ge r_i$; bei \code{vlsm} ist $s = s_i \ge r_i$, bei \code{fixed} ist $s = \max_j s_j \ge s_i \ge r_i$. (K6) folgt aus Satz~\ref{satz:minimal}: Ein Block mit weniger als $s_i$ Adressen hat höchstens $s_i/2 < r_i$ Adressen, also $u < \lceil\gamma h_i\rceil$ nach Lemma~\ref{lem:usable}. (Genauer: $u = s - o \le s_i/2 - o < r_i - o = \lceil\gamma h_i\rceil$.)
+\end{proof}
+
+\begin{satz}[Kompaktheit und Optimalität der Reihenfolge]
+\label{satz:kompakt}
+	Bei \code{vlsm} belegt der Plan genau das Intervall $[a_B,\ a_B+S)$. Jede überlappungsfreie Anordnung von Blöcken der Größen $s_1,\ldots,s_n$ in $\mathcal{A}_w$ mit Anfang bei Adresse $\ge a_B$ hat eine größte belegte Adresse von mindestens $a_B + S - 1$. Die Sortierung nach absteigender Größe ist daher optimal unter \emph{allen} Anordnungen, und nicht nur unter allen Reihenfolgen. Dagegen kann eine andere Reihenfolge strikt mehr Platz benötigen.
+\end{satz}
+
+\begin{proof}
+	Die erste Aussage ist Satz~\ref{satz:luecke}. Für die zweite: Die Blöcke liegen disjunkt in $[a_B, M]$, wobei $M$ die größte belegte Adresse ist, daher $S \le M - a_B + 1$. Der VLSM-Plan erreicht $M = a_B+S-1$. Für die letzte Aussage betrachten wir die Größen $32$ und $256$ bei $a_B = 0$ in aufsteigender Reihenfolge: Der $32$er-Block belegt $[0,32)$, der $256$er-Block muss bei einem Vielfachen von $256$ beginnen, also bei $256$, und endet bei $511$; die Sortierung nach absteigender Größe endet dagegen bei $287$.
+\end{proof}
+
+\begin{bemerkung}
+	Ein naives Verfahren, das alle $n!$ Reihenfolgen ausprobiert, um eine lückenlose Anordnung zu finden, ist wegen Satz~\ref{satz:kompakt} überflüssig: Eine einzige Sortierung ist bereits optimal. Das entspricht dem Übergang von $n!$ Permutationen zu $n$ Rotationen beim Subgraph Algorithmus.
+\end{bemerkung}
+
+\begin{satz}[VLSM dominiert feste Präfixlänge]
+\label{satz:fixed}
+	Ist der Plan bei \code{fixed} möglich, so auch bei \code{vlsm}. Der Mehrverbrauch von \code{fixed} gegenüber \code{vlsm} beträgt $W = n\max_i s_i - \sum_i s_i \ge 0$ Adressen, mit Gleichheit genau dann, wenn alle Blockgrößen gleich sind.
+\end{satz}
+
+\begin{proof}
+	Es ist $\sum_i s_i \le n\max_i s_i$, mit Gleichheit genau dann, wenn alle $s_i = \max_j s_j$. Mit Satz~\ref{satz:existenz} folgt die Behauptung.
+\end{proof}
+
+\begin{satz}[Interner Verschnitt]
+\label{satz:verschnitt}
+	Bei \code{vlsm} gilt $s_i < 2r_i$ für jedes $i$, die Blockauslastung $r_i/s_i$ liegt also strikt über $1/2$, und die Gesamtbelegung erfüllt $S < 2\sum_i r_i$.
+\end{satz}
+
+\begin{proof}
+	Satz~\ref{satz:minimal} liefert $s_i < 2r_i$. Summation über $i$ liefert $S < 2\sum_i r_i$.
+\end{proof}
+
+\subsection{Freie Bereiche}
+\label{sec:frei}
+
+Seien $e = a_B + |B|$ das Ende des Basisnetzes (exklusiv), $F = |B| - S'$ die Zahl der freien Adressen und $c = e - F$. Bei beiden Strategien liegen die Subnetze lückenlos ab $a_B$ (Satz~\ref{satz:luecke}), der freie Bereich ist also das Suffix $[c, e)$. Wir schreiben $F = \sum_{j=1}^{m} 2^{b_j}$ mit $b_1 < \cdots < b_m$ in Binärdarstellung, also $m = \popcnt(F)$.
+
+\begin{satz}[Freie Bereiche]
+\label{satz:frei}
+	Ist $F > 0$, so ist
+	\[
+	C_j = N(c_j,\ w - b_j) \quad\text{mit}\quad c_j = c + \sum_{i<j} 2^{b_i} = e - \sum_{i \ge j} 2^{b_i}, \qquad j = 1,\ldots,m,
+	\]
+	eine Zerlegung von $[c,e)$ in ausgerichtete Blöcke mit paarweise verschiedenen Größen $2^{b_1} < \cdots < 2^{b_m}$. Es gilt:
+	\begin{enumerate}[label=(F\arabic*)]
+		\item Jede Zerlegung von $[c,e)$ in Blöcke besteht aus mindestens $\popcnt(F)$ Blöcken, und die Zerlegung $(C_j)$ ist die einzige mit genau $\popcnt(F)$ Blöcken.
+		\item Die Blöcke $C_j$ sind \emph{maximal}: Kein Block, der in $[c,e)$ enthalten ist, enthält ein $C_j$ echt.
+		\item Der größte freie Block hat die Größe $2^{\lfloor \log_2 F\rfloor}$, und es gibt höchstens $w - p_B$ freie Blöcke.
+	\end{enumerate}
+\end{satz}
+
+\begin{proof}
+	\emph{Ausrichtung.} Da $a_B$ durch $|B|$ teilbar ist, ist es auch $e$. Wegen $S' \ge 1$ ist $F < |B|$, also $b_m < w-p_B$ und $2^{b_j} \mid |B| \mid e$. Weiter ist $\sum_{i\ge j} 2^{b_i}$ durch $2^{b_j}$ teilbar, also ist $c_j = e - \sum_{i\ge j}2^{b_i}$ durch $2^{b_j}$ teilbar: $C_j$ ist ausgerichtet. Die $C_j$ schließen nach Konstruktion lückenlos aneinander an und überdecken $[c_1, e) = [c,e)$.
+
+	(F1) Eine Zerlegung in $t$ Blöcke hat Größen $2^{d_1},\ldots,2^{d_t}$ mit Summe $F$. Gibt es zwei gleiche Summanden $2^d$, ersetze sie durch $2^{d+1}$; die Summe bleibt $F$, die Anzahl sinkt um $1$. Das Verfahren endet bei paarweise verschiedenen Zweierpotenzen mit Summe $F$, das ist die eindeutige Binärdarstellung mit $\popcnt(F)$ Summanden. Also $t \ge \popcnt(F)$. Gilt $t = \popcnt(F)$, so wurde nie ersetzt, die Größen sind verschieden und gleich $\{2^{b_j}\}$. Der erste Block beginnt bei $c$; $c = e - F$ hat dieselbe niedrigste gesetzte Stelle wie $F$ (denn $e$ ist durch $2^{w-p_B} > 2^{b_m}$ teilbar), nämlich $2^{b_1}$. Ein bei $c$ beginnender Block muss ausgerichtet sein, seine Größe muss also $c$ teilen, daher $\le 2^{b_1}$ und folglich $= 2^{b_1}$. Induktiv über den Rest $[c + 2^{b_1}, e)$ mit $F - 2^{b_1}$ ergibt sich die Reihenfolge $b_1<\cdots<b_m$, also genau $(C_j)$.
+
+	(F2) Angenommen, ein Block $M \subseteq [c,e)$ enthalte $C_j$ echt. Dann enthält $M$ auch den Elternblock $\hat C_j$ von $C_j$ (den ausgerichteten Block der doppelten Größe, der $C_j$ enthält; nach Lemma~\ref{lem:laminar} ist $\hat C_j \subseteq M$). Es ist $c_j \equiv e - 2^{b_j} \equiv 2^{b_j} \pmod{2^{b_j+1}}$, denn $e$ und $\sum_{i>j}2^{b_i}$ sind durch $2^{b_j+1}$ teilbar. Also ist $c_j$ \emph{nicht} durch $2^{b_j+1}$ teilbar, $C_j$ ist die rechte Hälfte seines Elternblocks, und $\hat C_j = [c_j - 2^{b_j},\, c_j + 2^{b_j})$. Wegen $\sum_{i<j}2^{b_i} < 2^{b_j}$ gilt $c_j - 2^{b_j} < c$, also $\hat C_j \not\subseteq [c,e)$, ein Widerspruch.
+
+	(F3) Der größte Block ist $2^{b_m}$, die höchste gesetzte Stelle von $F$, also $2^{\lfloor\log_2 F\rfloor}$. Wegen $F < |B| = 2^{w-p_B}$ gibt es höchstens $w - p_B$ gesetzte Stellen.
+\end{proof}
+
+\begin{bemerkung}
+	Die Python-Funktion \code{ipaddress.summarize_address_range} liefert die minimale CIDR-Zerlegung eines Adressintervalls; nach (F1) ist diese eindeutig und gleich $(C_j)$. In den Zufallstests (Abschnitt~\ref{sec:tests}) wurde für alle erzeugten Pläne bestätigt, dass die ausgegebenen freien Bereiche genau den gesetzten Bits von $F$ entsprechen. Die allgemeinere Funktion \code{_free_ranges} behandelt zusätzlich Lücken vor und zwischen Netzen und wird für die in Abschnitt~\ref{sec:ausblick} beschriebenen Bestandsnetze benötigt.
+\end{bemerkung}
+
+\begin{beispiel}[Freie Bereiche des Konfigurationsbeispiels]
+	Im Beispiel ist $|B| = 2^{16} = 65\,536$ und $S = 256 + 128 + 64 + 64 + 32 = 544$, also $F = 64\,992 = 2^{15}+2^{14}+2^{13}+2^{12}+2^{11}+2^{10}+2^{8}+2^{7}+2^{6}+2^{5}$. Das sind $\popcnt(F) = 10$ Blöcke der Größen $32,64,128,256,1024,\ldots,32768$, also genau die zehn ausgegebenen Bereiche \texttt{10.20.2.32/27} bis \texttt{10.20.128.0/17}. Das Fehlen von $2^9 = 512$ erklärt, warum zwischen \texttt{/24} und \texttt{/22} kein \texttt{/23} auftaucht: Das einzige ausgerichtete \texttt{/23} an dieser Stelle wäre \texttt{10.20.2.0/23}, und dieses enthält den belegten Drucker-Block \texttt{10.20.2.0/27}.
+\end{beispiel}
+
+\begin{satz}[Packbarkeit]
+\label{satz:pack}
+	Sei $\mathcal{F}$ eine endliche Familie paarweise disjunkter, \emph{maximaler} Blöcke (kein Block in $\bigcup\mathcal{F}$ enthält ein Element von $\mathcal{F}$ echt), und seien $2^{j_1},\ldots,2^{j_q}$ Auftragsgrößen. Es gibt genau dann paarweise disjunkte ausgerichtete Blöcke $M_t$ der Größe $2^{j_t}$ mit $M_t \subseteq \bigcup\mathcal{F}$, wenn für alle $j \ge 0$ gilt
+	\[
+	\sum_{t:\ j_t \ge j} 2^{j_t} \;\le\; \sum_{C\in\mathcal{F}:\ |C|\ge 2^j} |C|. \tag{$\ast$}
+	\]
+\end{satz}
+
+\begin{proof}
+	\emph{Notwendig.} Sei $M_t \subseteq \bigcup\mathcal{F}$ und $M_t$ schneide $C \in \mathcal{F}$. Nach Lemma~\ref{lem:laminar} gilt $M_t \subseteq C$ oder $C \subsetneq M_t$. Der zweite Fall ist wegen der Maximalität ausgeschlossen. Also liegt jedes $M_t$ in einem einzigen $C$ mit $|C| \ge |M_t|$. Die Aufträge mit $j_t\ge j$ liegen damit in Blöcken $C$ mit $|C|\ge 2^j$ und sind dort disjunkt, ihre Gesamtgröße ist also höchstens die Summe der $|C|$ dieser Blöcke.
+
+	\emph{Hinreichend.} Wir platzieren die Aufträge klassenweise für $j = J, J-1,\ldots,0$ ($J$ die größte vorkommende Größe) und halten die Invariante: \emph{Vor Klasse $j$ ist jeder Block $C$ ab seinem Anfang lückenlos mit bereits platzierten Aufträgen bis zum Füllstand $f_C$ gefüllt, und $f_C$ ist ein Vielfaches von $2^{j+1}$.} Anfangs ist $f_C = 0$. Für Blöcke mit $|C| \ge 2^j$ ist die Restkapazität $\rho_C = |C| - f_C$ ein Vielfaches von $2^j$ (beide Terme sind es). Blöcke mit $|C| < 2^j$ nehmen keine Aufträge der Klassen $\ge j$ auf und bleiben leer. Die gesamte Restkapazität dieser Blöcke ist
+	\[
+	R_j = \sum_{|C|\ge 2^j}|C| - \sum_C f_C \;\ge\; \sum_{t:\ j_t\ge j}2^{j_t} - \sum_{t:\ j_t > j}2^{j_t} = n_j\cdot 2^j,
+	\]
+	wobei $n_j$ die Zahl der Aufträge der Größe $2^j$ ist; dabei wurde $(\ast)$ und $\sum_C f_C = \sum_{t:\,j_t>j}2^{j_t}$ benutzt. Da jedes $\rho_C$ ein Vielfaches von $2^j$ ist, passen in die Blöcke insgesamt $R_j/2^j \ge n_j$ Aufträge der Größe $2^j$. Man platziert sie lückenlos ab dem jeweiligen Füllstand. Die Startadresse $\mathrm{start}(C) + f_C$ ist ein Vielfaches von $2^j$ (denn $\mathrm{start}(C)$ ist ein Vielfaches von $|C| \ge 2^j$ und $f_C$ ein Vielfaches von $2^{j+1}$), die Aufträge sind also ausgerichtet, und die neuen Füllstände sind Vielfache von $2^j$, was die Invariante für Klasse $j-1$ herstellt.
+\end{proof}
+
+\begin{korollar}[Verlustfreie Erweiterbarkeit]
+\label{kor:erweiterung}
+	Seien nach einem Plan (\code{vlsm} oder \code{fixed}) neue Gruppen mit Blockgrößen $x_1,\ldots,x_q$ (Zweierpotenzen) zu ergänzen. Sie lassen sich genau dann in den freien Bereichen unterbringen, ohne bestehende Subnetze zu verschieben, wenn $\sum_t x_t \le F$. Das ist dieselbe Bedingung, unter der ein vollständig neuer VLSM-Plan aller Gruppen möglich wäre.
+\end{korollar}
+
+\begin{proof}
+	Die freien Blöcke $C_1,\ldots,C_m$ sind nach Satz~\ref{satz:frei} (F2) maximal. Notwendigkeit ist klar (die Aufträge liegen disjunkt in $F$ freien Adressen). Für die Hinlänglichkeit prüfen wir $(\ast)$ für jedes $j$: Die rechte Seite ist $\sum_{b_i \ge j}2^{b_i} = F - (F \bmod 2^j)$. Die linke Seite $L_j = \sum_{t: x_t\ge 2^j} x_t$ ist ein Vielfaches von $2^j$ und höchstens $\sum_t x_t \le F$, also $L_j \le \lfloor F/2^j\rfloor\, 2^j = F - (F\bmod 2^j)$. Nach Satz~\ref{satz:pack} ist die Platzierung möglich. Ein neuer VLSM-Plan aller Gruppen ist nach Satz~\ref{satz:existenz} genau dann möglich, wenn $S + \sum_t x_t \le |B|$, das heißt $\sum_t x_t \le F$.
+\end{proof}
+
+\begin{bemerkung}
+	Der Beweis von Satz~\ref{satz:pack} ist konstruktiv: Er liefert ein Verfahren \glqq größte Aufträge zuerst, jeweils lückenlos in einen freien Block\grqq, das der Ausblick (Abschnitt~\ref{sec:ausblick}) als inkrementelle Planung vorschlägt.
+\end{bemerkung}
+
+\subsection{Firewall-Regeln}
+\label{sec:firewall}
+
+Für ein Zugriffspaar $(i,j) \in P$ (Definition~\ref{def:zugriff}) wird eine Freigabe vom Subnetz $N_i$ in das Subnetz $N_j$ erzeugt. Zugriff auf das eigene Subnetz benötigt keine Regel, da Verkehr innerhalb eines Subnetzes (einer Broadcast-Domäne) nicht geroutet wird.
+
+\begin{definition}[Regelliste mit Standardaktion]
+	Ein \emph{Paket} ist ein Tripel $(x,y,\zeta)$ aus Quelladresse $x$, Zieladresse $y$ und Zustand $\zeta \in \{\textsc{neu}, \textsc{etabliert}\}$ (\textsc{etabliert} umfasst die Zustände \emph{established} und \emph{related}). Eine \emph{Regelliste} ist eine Folge von Regeln $(\text{Bedingung}, \text{Aktion})$ mit einer Standardaktion $d$. Das \emph{Urteil} ist die Aktion der ersten zutreffenden Regel oder, falls keine zutrifft, $d$.
+\end{definition}
+
+Die erzeugte Liste für \code{iptables} und \code{nftables} ist: Regel $0$: Zustand \textsc{etabliert} $\Rightarrow$ \textsc{accept}; danach je Zugriffspaar $(i,j)$ die Regel \glqq $x\in N_i \wedge y \in N_j \Rightarrow$ \textsc{accept}\grqq; Standardaktion \textsc{drop} (bei \code{nftables} als \code{policy drop}, bei \code{iptables} als letzte Regel \code{-j DROP}).
+
+\begin{satz}[Default-Deny-Korrektheit]
+\label{satz:firewall}
+	Für jedes Paket $(x,y,\textsc{neu})$ ist das Urteil der erzeugten Liste genau dann \textsc{accept}, wenn es Gruppen $i \neq j$ mit $x\in N_i$, $y\in N_j$ und $g_j \in \text{acc}(g_i)$ gibt. Diese Gruppen sind eindeutig. Pakete mit Quelle oder Ziel außerhalb aller Subnetze (zum Beispiel ins Internet) werden verworfen. Die Reihenfolge der Freigabe-Regeln beeinflusst das Urteil nicht.
+\end{satz}
+
+\begin{proof}
+	Regel $0$ trifft auf \textsc{neu} nicht zu. Eine Freigabe-Regel für $(i,j)\in P$ trifft genau dann zu, wenn $x \in N_i$ und $y \in N_j$. Existiert keine zutreffende Freigabe, ist das Urteil \textsc{drop}. Nach Satz~\ref{satz:korrekt} (K3) sind die $N_i$ disjunkt, jede Adresse liegt also in höchstens einem $N_i$: Die Gruppen $i$ und $j$ sind eindeutig, falls sie existieren, und dann ist $(i,j)\in P$ genau dann, wenn $i\neq j$ und $g_j \in\text{acc}(g_i)$. Liegt $x$ oder $y$ in keinem Subnetz, trifft keine Freigabe zu. Da alle Freigaben dieselbe Aktion \textsc{accept} haben, ist das Urteil von ihrer Reihenfolge unabhängig.
+\end{proof}
+
+\begin{korollar}[Richtung und Rückverkehr]
+	Zugriff ist gerichtet und nicht transitiv: Dass $g_i$ auf $g_j$ und $g_j$ auf $g_k$ zugreifen darf, erlaubt nicht automatisch $g_i \to g_k$. Ein neues Paket von $g_j$ nach $g_i$ wird nur freigegeben, wenn $(j,i)\in P$. Antworten auf bereits aufgebaute Verbindungen sind dagegen als \textsc{etabliert} immer zulässig. Die Zahl der Freigabe-Regeln ist $|P|\le n(n-1)$, bei doppelt genannten Zugriffszielen in \code{access} entsprechend mehr identische Regeln.
+\end{korollar}
+
+\begin{proof}
+	Folgt direkt aus Satz~\ref{satz:firewall} und der Definition von $P$. Die Schranke $|P| \le n(n-1)$ gilt, weil $P \subseteq \{(i,j): i \ne j\}$ ist, solange jedes Ziel höchstens einmal genannt wird.
+\end{proof}
+
+\paragraph{Cisco-ACLs.} Für jedes Subnetz $N_i$ wird eine eingehende ACL am Interface \code{Vlan<ID>} erzeugt, die für jedes $(i,j)\in P$ die Zeile \code{permit ip} $N_i$ $N_j$ in Wildcard-Schreibweise (Hostmaske) und am Ende \code{deny ip any any} enthält.
+
+\begin{satz}[Cisco-Semantik]
+\label{satz:cisco}
+	Ein Paket $(x,y)$, das am Interface \code{Vlan}$v_i$ eingeht, wird genau dann weitergeleitet, wenn $x \in N_i$ und es ein $j\neq i$ mit $g_j \in \text{acc}(g_i)$ und $y\in N_j$ gibt. Insbesondere werden Pakete mit gefälschter Quelle (außerhalb $N_i$) verworfen. Da ACLs zustandslos sind, wird Rückverkehr von $g_j$ nach $g_i$ nur dann weitergeleitet, wenn zusätzlich $g_i \in \text{acc}(g_j)$ gilt.
+\end{satz}
+
+\begin{proof}
+	Die ACL besteht aus den \code{permit}-Zeilen für $(i,j)\in P$ mit Quelle $N_i$ und Ziel $N_j$ und der Schlusszeile \code{deny}; die erste zutreffende Zeile entscheidet. Ein Paket wird also genau dann erlaubt, wenn $x\in N_i \wedge y\in N_j$ für ein $(i,j)\in P$. Die Aussage über Fälschungen folgt aus $x\notin N_i$. Ein Rückpaket von $g_j$ nach $g_i$ tritt an $\text{Vlan}\,v_j$ ein und unterliegt der ACL von $g_j$, die es nur bei $(j,i)\in P$ erlaubt.
+\end{proof}
+
+\begin{bemerkung}[Konsequenz für das Konfigurationsbeispiel]
+	Im Beispiel gibt es kein symmetrisches Paar. Die erzeugten Cisco-ACLs verhindern daher, dass etwa Antworten von \texttt{Server} an \texttt{Entwicklung} zurückkehren, und die Verbindung kommt nicht zustande. Die Kopfzeile der Ausgabe weist darauf hin, dass der Rückverkehr durch Gegenregeln zu erlauben ist. Eine automatische Lösung ist im Ausblick beschrieben. Bei \code{iptables} und \code{nftables} tritt das Problem wegen der Regel $0$ (\textsc{etabliert}) nicht auf.
+\end{bemerkung}
+
+\begin{lemma}[Eindeutige ACL-Namen]
+	Die ACL-Namen \code{ACL-<VLAN>-<NAME>} sind für verschiedene Gruppen verschieden.
+\end{lemma}
+
+\begin{proof}
+	Nach Lemma~\ref{lem:vlan} sind die VLAN-IDs paarweise verschieden. Der Name beginnt mit \texttt{ACL-}, es folgt die Dezimaldarstellung der VLAN-ID und ein \texttt{-}. Da die Dezimaldarstellung nur Ziffern enthält, lässt sich die ID aus dem Namen eindeutig zurücklesen. Verschiedene IDs ergeben also verschiedene Namen.
+\end{proof}
+
