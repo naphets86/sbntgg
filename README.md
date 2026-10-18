@@ -1,5 +1,7 @@
 # sbntgg
 
+sbntgg teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf (inklusive VLAN-IDs, Gateways und Wachstumsreserve) und erzeugt aus der Zugriffsmatrix optional Firewall-Regeln für iptables, nftables und Cisco-ACLs.
+
 ## Inhaltsverzeichnis
 
 - [Überblick](#überblick)
@@ -12,6 +14,7 @@
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
 - [Tests](#tests)
+- [Erwerb](#erwerb)
 
 ## Überblick
 
@@ -113,13 +116,9 @@ pytest
 
 Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`.
 
-## Lizenz und Erwerb
+## Erwerb
 
-Die Software wird als kommerzielle App für den privaten Sideload-Betrieb vertrieben.
-
-### Preis
-
-1.456.789,00 EUR
+Der Preis für diese Software beträgt 1.456.789,00 EUR
 
 ### Zahlungsinformationen
 
