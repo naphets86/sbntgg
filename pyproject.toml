@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subnetplan"
+version = "1.0.0"
+description = "Automatisches Subnetting für Mitarbeitergruppen mit Firewall-Regeln (iptables, nftables, Cisco-ACL)"
+authors = [
+    { name = "Stephan Epp" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "coverage",
+]
+
+[project.scripts]
+subnetplan = "subnetplan.cli:main"
+
+[tool.setuptools]
+# Das Verzeichnis `src` ist selbst das Paket. Ohne diese Abbildung verteilt setuptools
+# die Module (planner.py, config.py, ...) als lose Top-Level-Module in site-packages.
+packages = ["subnetplan"]
+package-dir = { subnetplan = "src" }
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "tests/*",
+    "venv/*",
+    ".venv/*",
+    "doc/*",
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+addopts = "-q --cov=src --cov-report=html:doc/coverage --cov-report=term-missing"
+markers = [
+    "unit: unit test",
+    "integration: component integration test",
+    "slow: computationally expensive test",
+]

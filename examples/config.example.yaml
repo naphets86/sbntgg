@@ -1,0 +1,26 @@
+# Beispielkonfiguration für subnetplan
+base_network: 10.20.0.0/16      # zugewiesener Bereich (IPv4 oder IPv6)
+growth_factor: 1.25             # Wachstumsreserve pro Gruppe (>= 1.0)
+allocation_strategy: vlsm       # vlsm = größte Gruppe zuerst | fixed = einheitliche Präfixlänge
+gateway_position: first         # first | last | none
+
+groups:
+  - name: Server
+    hosts: 40
+    vlan_id: 100
+    priority: 0                 # kleinere Zahl = früher im Adressraum (bei gleicher Größe bzw. bei fixed)
+    access: [Drucker]
+
+  - name: Entwicklung
+    hosts: 120
+    access: [Server, Drucker]
+
+  - name: HR
+    hosts: 25
+    access: [Drucker]
+
+  - name: Drucker
+    hosts: 12
+
+  - name: Gäste
+    hosts: 60                   # kein access: keine internen Ziele
