@@ -1,4 +1,4 @@
-# subnetplan
+# sbntgg
 
 ## Inhaltsverzeichnis
 
@@ -112,3 +112,17 @@ pytest
 ```
 
 Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`.
+
+## Lizenz und Erwerb
+
+Die Software wird als kommerzielle App für den privaten Sideload-Betrieb vertrieben.
+
+### Preis
+
+1.456.789,00 EUR
+
+### Zahlungsinformationen
+
+Name: Stephan Epp  
+IBAN: DE24 5003 1900 0012 5603 20  
+BIC: BBVADEFFXXX
