@@ -240,6 +240,17 @@ Cisco-ACLs sind zustandslos, Rückverkehr braucht passende Gegenregeln. Die erze
 | `src/planner.py` | Bedarfsberechnung, VLAN-Vergabe, Subnetz-Zuteilung |
 | `src/render.py` | Ausgabe als Tabelle, CSV und JSON |
 | `src/firewall.py` | Regeln für iptables, nftables und Cisco |
+| `src/exact.py` | Exakte Bedarfsrechnung `ceil(γ·h)` ohne Gleitkomma |
+| `src/blocks.py` | Blockalgebra: freie Bereiche, Packbarkeit (Bedingung (*)), konstruktive Zuteilung |
+| `src/access.py` | Zugriffsmatrix, Bereinigung von `access`, Regelgruppierung |
+| `src/semantics.py` | Referenzurteile der Regelwerke (Default-Deny, Cisco) |
+| `src/hierarchy.py` | Zweistufige Planung mit Standortblöcken (`site`) |
+| `src/extend.py` | Plan erweitern (`--extend`), Netze an Ort und Stelle verdoppeln |
+| `src/roundtrip.py` | Regeln zurücklesen und mit der Zugriffsmatrix vergleichen |
+| `src/verify.py` | Prüfung eines Plans gegen die Sätze der Arbeit |
+| `src/stats.py` | Auslastung, Verschnitt, Poisson-Dimensionierung |
+| `src/checks.py` | Warnungen (privater Bereich, VPN-Überschneidung, Auslastung) |
+| `src/policy.py` | Richtlinienvergleich, nutzt den Subgraph Algorithmus (Dependency) |
 | `src/cli.py` | Kommandozeile |
 | `tests/` | pytest-Tests |
 | `examples/` | Beispielkonfiguration `config.example.yaml` (fünf Gruppen), ausführlich beschrieben im Abschnitt [Beispielkonfiguration](#beispielkonfiguration) |
@@ -249,7 +260,8 @@ Cisco-ACLs sind zustandslos, Rückverkehr braucht passende Gegenregeln. Die erze
 ## Voraussetzungen
 
 - Python 3.11 oder neuer
-- PyYAML
+- PyYAML, NumPy
+- Das Paket `subgraph` (Subgraph Algorithmus, https://github.com/naphets86/subgraph); wird über die `pyproject.toml` per `pip install` eingebunden und nicht kopiert
 - Für Tests: `pytest` und `pytest-cov`
 
 ## Installation
@@ -259,6 +271,21 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
+
+## Neue Funktionen
+
+| Funktion | Konfiguration / Option |
+| --- | --- |
+| Bestandsnetze, mehrere Pools, feste Netze | `existing`, `pools`, Gruppenschlüssel `network` |
+| Mindestblockgröße, eigener Overhead | `max_prefix` (`--max-prefix`), Gruppenschlüssel `overhead` |
+| Zweistufige Planung | Gruppenschlüssel `site` |
+| Plan erweitern | `--extend plan.json neue.yaml` |
+| Regelgruppierung (nftables-Mengen, ipset, Cisco-Objektgruppen) | `--group-rules` |
+| Rückverkehr bei Cisco, ASCII-Namen, Logging, ICMPv6 | `--cisco-return established`, `--ascii-names`, `--log-drops`, `--icmpv6 TYPEN` |
+| iptables-Skript wiederholbar ausführen | Standard, abschaltbar mit `--no-idempotent` |
+| Prüfungen und Berichte (auf stderr) | `--verify`, `--roundtrip`, `--warnings`, `--stats`, `--compare ANDERE.yaml` |
+
+`--compare` vergleicht die Zugriffsrichtlinien exakt und zusätzlich mit dem Subgraph Algorithmus. Dessen Ergebnis ist eine Heuristik und wird gesondert ausgewiesen; maßgeblich ist die exakte Prüfung.
 
 ## Tests
 

@@ -15,9 +15,18 @@ FORMATS = ("table", "csv", "json")
 FIREWALLS = ("none", "iptables", "nftables", "cisco")
 
 TOP_KEYS = frozenset(
-    {"base_network", "growth_factor", "allocation_strategy", "gateway_position", "groups"}
+    {
+        "base_network",
+        "growth_factor",
+        "allocation_strategy",
+        "gateway_position",
+        "groups",
+        "max_prefix",
+        "pools",
+        "existing",
+    }
 )
-GROUP_KEYS = frozenset({"name", "hosts", "vlan_id", "access", "priority"})
+GROUP_KEYS = frozenset({"name", "hosts", "vlan_id", "access", "priority", "overhead", "network", "site"})
 
 # Gruppennamen landen in Firewall-Kommentaren und ACL-Namen: nur harmlose Zeichen.
 NAME_RE = re.compile(r"^[\w\- ]+$")
@@ -48,11 +57,22 @@ class PlanError(ValueError):
 
 @dataclass(frozen=True)
 class Group:
+    """Eine Gruppe (Definition "Gruppe, Konfiguration" der Arbeit).
+
+    Optionale Erweiterungen (Abschnitt Ausblick):
+    ``overhead`` ersetzt den berechneten Overhead o_i (Satz "Robustheit gegenüber
+    Mindestgrößen"), ``network`` legt einen festen Block fest (Bestandsplanung) und
+    ``site`` ordnet die Gruppe einem Standort zu (zweistufige Planung).
+    """
+
     name: str
     hosts: int
     vlan_id: Optional[int] = None
     access: Tuple[str, ...] = ()
     priority: int = 0
+    overhead: Optional[int] = None
+    network: Optional[IPNetwork] = None
+    site: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +82,10 @@ class PlanConfig:
     growth_factor: float = 1.25
     allocation_strategy: str = "vlsm"
     gateway_position: str = "first"
+    max_prefix: Optional[int] = None  # längste erlaubte Präfixlänge = Mindestblockgröße
+    pools: Tuple[IPNetwork, ...] = ()  # weitere Basisnetze neben base_network
+    existing: Tuple[IPNetwork, ...] = ()  # bereits vergebene Netze (Bestand)
+    warnings: Tuple[str, ...] = ()  # Hinweise aus der Bereinigung von ``access``
 
 
 @dataclass(frozen=True)
@@ -76,13 +100,14 @@ class Subnet:
     broadcast: Optional[IPAddress]
     usable_hosts: int
     access: Tuple[str, ...]
+    site: Optional[str] = None
 
     @property
     def netmask(self) -> str:
         return str(self.network.netmask)
 
     def as_dict(self) -> Dict[str, Any]:
-        return {
+        data: Dict[str, Any] = {
             "group": self.group,
             "vlan_id": self.vlan_id,
             "network": str(self.network),
@@ -95,6 +120,9 @@ class Subnet:
             "requested_hosts": self.requested_hosts,
             "access": list(self.access),
         }
+        if self.site is not None:
+            data["site"] = self.site
+        return data
 
 
 @dataclass(frozen=True)
@@ -102,18 +130,32 @@ class Plan:
     base_network: IPNetwork
     subnets: Tuple[Subnet, ...]
     free_ranges: Tuple[IPNetwork, ...]
+    pools: Tuple[IPNetwork, ...] = ()  # zusätzliche Pools (Bestandsplanung)
+    reserved: Tuple[IPNetwork, ...] = ()  # bereits vergebene Netze, nicht Teil des Plans
+    site_blocks: Tuple[Tuple[str, IPNetwork], ...] = ()  # Standortblöcke (Hierarchie)
+
+    @property
+    def all_pools(self) -> Tuple[IPNetwork, ...]:
+        return (self.base_network,) + self.pools
 
     @property
     def total_addresses(self) -> int:
-        return self.base_network.num_addresses
+        return sum(p.num_addresses for p in self.all_pools)
 
     @property
     def allocated_addresses(self) -> int:
+        """Belegte Adressen; bei hierarchischer Planung zählen die Standortblöcke."""
+        if self.site_blocks:
+            return sum(net.num_addresses for _, net in self.site_blocks)
         return sum(s.network.num_addresses for s in self.subnets)
 
     @property
+    def reserved_addresses(self) -> int:
+        return sum(n.num_addresses for n in self.reserved)
+
+    @property
     def free_addresses(self) -> int:
-        return self.total_addresses - self.allocated_addresses
+        return self.total_addresses - self.allocated_addresses - self.reserved_addresses
 
     @property
     def utilization(self) -> float:

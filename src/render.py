@@ -23,12 +23,19 @@ def render_json(plan: Plan) -> str:
         "free_ranges": [str(n) for n in plan.free_ranges],
         "subnets": [s.as_dict() for s in plan.subnets],
     }
+    if plan.pools:
+        payload["pools"] = [str(n) for n in plan.pools]
+    if plan.reserved:
+        payload["reserved"] = [str(n) for n in plan.reserved]
+    if plan.site_blocks:
+        payload["site_blocks"] = {site: str(net) for site, net in plan.site_blocks}
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def render_csv(plan: Plan) -> str:
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=CSV_FIELDS, lineterminator="\n")
+    fields = CSV_FIELDS + (("site",) if any(s.site is not None for s in plan.subnets) else ())
+    writer = csv.DictWriter(buffer, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     for subnet in plan.subnets:
         row = subnet.as_dict()
@@ -56,6 +63,10 @@ def render_table(plan: Plan) -> str:
         ]
         for s in plan.subnets
     ]
+    if any(s.site is not None for s in plan.subnets):
+        headers.append("Standort")
+        for row, s in zip(rows, plan.subnets):
+            row.append(s.site or "-")
     widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
 
     def line(cells: Sequence[str]) -> str:
@@ -63,12 +74,17 @@ def render_table(plan: Plan) -> str:
 
     out: List[str] = [line(headers), line(["-" * w for w in widths]), *(line(r) for r in rows)]
     free = ", ".join(str(n) for n in plan.free_ranges) or "-"
+    pools = ", ".join(str(n) for n in plan.all_pools)
     out += [
         "",
-        f"Basisnetz: {plan.base_network} ({plan.total_addresses} Adressen)",
+        f"Basisnetz: {pools} ({plan.total_addresses} Adressen)"
+        if plan.pools
+        else f"Basisnetz: {plan.base_network} ({plan.total_addresses} Adressen)",
         f"Belegt: {plan.allocated_addresses} ({_percent(plan)} %), frei: {plan.free_addresses}",
         f"Freie Bereiche: {free}",
     ]
+    if plan.site_blocks:
+        out.append("Standortblöcke: " + ", ".join(f"{site} {net}" for site, net in plan.site_blocks))
     return "\n".join(out)
 
 
