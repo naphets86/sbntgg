@@ -74,7 +74,7 @@
 
 \title{Der Subnetting Algorithmus sbntgg}
 \author{Stephan Epp}
-\date{18. Oktober 2026}
+\date{19. Oktober 2026}
 
 \begin{document}
 
@@ -86,6 +86,8 @@ Der Subnetting Algorithmus \texttt{sbntgg} (Kommandozeilenprogramm \texttt{subne
 Die Arbeit definiert das Problem formal, beweist die Korrektheit der Zuteilung (Ausrichtung, Überlappungsfreiheit, Kapazitätsgarantie), zeigt, dass die Strategie \glqq größte Blöcke zuerst\grqq{} lückenlos und unter allen Anordnungen optimal ist, charakterisiert die freien Restbereiche exakt und beweist, dass sich jede Wachstumsreserve ohne Umnummerierung nutzen lässt, sobald ihre Gesamtgröße in den freien Adressraum passt.
 Für die Firewall-Regeln wird ein Default-Deny-Satz bewiesen.
 Die Laufzeit des Kerns beträgt $\Theta(n\log n + a)$ im Vergleichsmodell und ist damit optimal.
+Die zunächst nur vorgeschlagenen Erweiterungen sind in Version~1.1.0 umgesetzt: Planung mit Bestandsnetzen und mehreren Pools (exakte Packbarkeitsbedingung), Mindestgrößen und eigener Overhead, zweistufige Planung mit Standortblöcken, inkrementelle Erweiterung und Verdopplung an Ort und Stelle, Regelgruppierung, Rückverkehr bei Cisco-ACLs sowie eine Rückübersetzung der erzeugten Regeln als Korrektheitstest.
+Der Richtlinienvergleich über den Subgraph Algorithmus wird durch eine exakte Prüfung abgesichert, weil dessen Signaturvergleich, wie die Arbeit zeigt, nur eine Heuristik ist.
 Ein ausführlich erklärtes Konfigurationsbeispiel, eine Einführung in das Subnetting für Schülerinnen und Schüler sowie ein umfangreicher Ausblick ergänzen die Arbeit.
 \end{abstract}
 
@@ -118,7 +120,7 @@ Eine besondere Verbindung besteht zum Subgraph Algorithmus: Die Zugriffsmatrix i
 
 \subsection{Aufbau der Arbeit}
 
-Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 fasst zusammen und gibt einen ausführlichen Ausblick.
+Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 fasst zusammen, beschreibt die in Version~1.1.0 umgesetzten Erweiterungen samt Beweisen und Prüfergebnissen und nennt die noch offenen Punkte.
 
 \section{Grundlagen}
 
@@ -405,7 +407,7 @@ Gib den Plan als Tabelle, CSV oder JSON aus und erzeuge optional aus den Zugriff
 
 \begin{lemma}[Gleitkomma-Aufrundung]
 \label{lem:float}
-	Der Code berechnet $\lceil\gamma h\rceil$ als \code{math.ceil(round(h * gamma, 9))}. Hat $\gamma$ höchstens $8$ Nachkommastellen und gilt $h\gamma \le 10^6$, so ist das Ergebnis exakt $\lceil \gamma h \rceil$. Ohne das Runden ist das im Allgemeinen falsch: \code{math.ceil(100 * 1.1)} ergibt $111$ statt $110$.
+	Die Version~1.0.0 berechnete $\lceil\gamma h\rceil$ als \code{math.ceil(round(h * gamma, 9))}. Hat $\gamma$ höchstens $8$ Nachkommastellen und gilt $h\gamma \le 10^6$, so ist das Ergebnis exakt $\lceil \gamma h \rceil$. Ohne das Runden ist das im Allgemeinen falsch: \code{math.ceil(100 * 1.1)} ergibt $111$ statt $110$.
 \end{lemma}
 
 \begin{proof}
@@ -416,6 +418,17 @@ Gib den Plan als Tabelle, CSV oder JSON aus und erzeuge optional aus den Zugriff
 	\emph{Fall 1:} $h\gamma = m \in \mathbb{N}$. Dann liegt $\hat x$ in $(m - 2.3\cdot10^{-10},\, m + 2.3\cdot 10^{-10})$, das Runden auf $9$ Nachkommastellen liefert $m$, und $\lceil m \rceil = m$.
 	\emph{Fall 2:} $h\gamma = N + f$ mit $N\in\mathbb{N}_0$ und $f\notin\mathbb{Z}$. Da $\gamma$ höchstens $8$ Nachkommastellen hat, ist $h\gamma$ ein Vielfaches von $10^{-8}$, also $f \in [10^{-8},\,1-10^{-8}]$. Die Abweichung durch Fehler und Runden beträgt höchstens $2.3\cdot 10^{-10} + 5\cdot10^{-10} + 10^{-10} < 10^{-8}$, daher bleibt der gerundete Wert strikt zwischen $N$ und $N+1$, und die Aufrundung liefert $N+1 = \lceil h\gamma\rceil$.
 	Für das Gegenbeispiel: In Gleitkommaarithmetik ist $100 \cdot 1.1 = 110.00000000000001$, die Aufrundung ergibt $111$.
+\end{proof}
+
+Die Einschränkung auf acht Nachkommastellen und $h\gamma\le10^6$ ist seit Version~1.1.0 aufgehoben:
+
+\begin{lemma}[Exakte Aufrundung]
+\label{lem:exakt}
+	Seien $h\in\mathbb{N}$ und $\gamma$ ein Dezimalbruch mit höchstens $15$ signifikanten Stellen, der als Python-\code{float} gelesen wird. Das Modul \code{exact.py} bestimmt $\gamma = p/q$ aus der kürzesten Dezimaldarstellung (\code{repr}) des \code{float} und berechnet $\lceil\gamma h\rceil$ als \code{-((-p*h) // q)}. Das Ergebnis ist für alle $h$ genau $\lceil\gamma h\rceil$, ohne Beschränkung von $h\gamma$.
+\end{lemma}
+
+\begin{proof}
+	Zwei verschiedene Dezimalbrüche mit höchstens $15$ signifikanten Stellen unterscheiden sich relativ um mindestens $10^{-15}$, der Rundungsfehler beim Lesen als \code{float} beträgt höchstens $2^{-53} \approx 1{,}1\cdot10^{-16}$. Sie ergeben also verschiedene \code{float}-Werte. Jede Zeichenkette mit höchstens $15$ Stellen, die zum gelesenen \code{float} gehört, hat daher den Wert $\gamma$, insbesondere die kürzeste, die \code{repr} liefert. Mit $\gamma = p/q$ ist $\lceil \gamma h\rceil = \lceil ph/q\rceil = -\lfloor -ph/q\rfloor$, und \code{//} rundet in Python nach unten. Alle Schritte rechnen mit ganzen Zahlen und sind exakt.
 \end{proof}
 
 \subsection{VLAN-Vergabe}
@@ -629,18 +642,29 @@ Die erzeugte Liste für \code{iptables} und \code{nftables} ist: Regel $0$: Zust
 
 \subsection{Implementierung}
 
-Die Implementierung in Python gliedert sich in sechs Module: \texttt{models.py} (Konstanten, Datenklassen, Fehlertyp \texttt{PlanError}), \texttt{config.py} (Laden und Validieren), \texttt{planner.py} (Bedarf, VLAN-Vergabe, Zuteilung), \texttt{render.py} (Tabelle, CSV, JSON), \texttt{firewall.py} (Regeln) und \texttt{cli.py} (Kommandozeile). Sie verwendet nur die Standardbibliothek (\texttt{ipaddress}, \texttt{math}, \texttt{csv}, \texttt{json}) und \texttt{PyYAML}. Alle Datenklassen sind unveränderlich (\texttt{frozen=True}), und alle Fehler werden als \texttt{PlanError} gemeldet, die die Kommandozeile mit dem Rückgabewert $1$ und der Meldung \glqq Fehler: \dots\grqq{} auf der Fehlerausgabe beantwortet.
+Die Implementierung in Python gliedert sich seit Version~1.1.0 in siebzehn Module. Der Kern aus Abschnitt~3 liegt in \texttt{models.py} (Konstanten, Datenklassen, Fehlertyp \texttt{PlanError}), \texttt{config.py} (Laden und Validieren), \texttt{planner.py} (Bedarf, VLAN-Vergabe, Zuteilung), \texttt{render.py} (Tabelle, CSV, JSON), \texttt{firewall.py} (Regeln) und \texttt{cli.py} (Kommandozeile). Die Module der Erweiterungen beschreibt der letzte Teil dieses Abschnitts. Verwendet werden die Standardbibliothek (\texttt{ipaddress}, \texttt{fractions}, \texttt{csv}, \texttt{json}), \texttt{PyYAML}, \texttt{NumPy} für die Zugriffsmatrix und der Subgraph Algorithmus als Abhängigkeit (\texttt{pip install} über die \texttt{pyproject.toml}, nicht als Kopie im Projekt). Nur \texttt{policy.py} importiert ihn, und die Kommandozeile lädt dieses Modul erst bei \texttt{--compare}. Alle Datenklassen sind unveränderlich (\texttt{frozen=True}), und alle Fehler werden als \texttt{PlanError} gemeldet, die die Kommandozeile mit dem Rückgabewert $1$ und der Meldung \glqq Fehler: \dots\grqq{} auf der Fehlerausgabe beantwortet.
 
 \subsubsection{Bedarf und Präfixlänge}
 
 \begin{lstlisting}[language=Python, caption={Bedarf und Präfixlänge (\texttt{planner.py})}]
-def required_addresses(group: Group, growth_factor: float, gateway_position: str, version: int) -> int:
-    """Adressen inkl. Wachstumsreserve und Overhead (Netz, Broadcast, Gateway)."""
-    wanted = math.ceil(round(group.hosts * growth_factor, 9))
+def default_overhead(gateway_position: str, version: int) -> int:
+    """Overhead o: Netzadresse, Broadcast (nur IPv4) und Gateway (außer bei ``none``)."""
     overhead = 2 if version == 4 else 1  # IPv6 kennt keinen Broadcast
     if gateway_position != "none":
         overhead += 1
-    return wanted + overhead
+    return overhead
+
+
+def group_overhead(group: Group, gateway_position: str, version: int) -> int:
+    """Overhead der Gruppe: ihr eigener Wert (Satz "Robustheit") oder der Standard."""
+    if group.overhead is not None:
+        return group.overhead
+    return default_overhead(gateway_position, version)
+
+
+def required_addresses(group: Group, growth_factor: float, gateway_position: str, version: int) -> int:
+    """Adressen r = ceil(gamma * h) + o, mit exakter Rechnung (siehe ``exact``)."""
+    return ceil_product(group.hosts, growth_factor) + group_overhead(group, gateway_position, version)
 
 
 def prefix_for(total: int, max_prefix: int, name: str) -> int:
@@ -651,7 +675,7 @@ def prefix_for(total: int, max_prefix: int, name: str) -> int:
     return prefix
 \end{lstlisting}
 
-Die Funktion \code{required_addresses} berechnet $r_i = \lceil\gamma h_i\rceil + o$ nach Definition~\ref{def:bedarf}; das Runden auf neun Nachkommastellen verhindert den Gleitkommafehler aus Lemma~\ref{lem:float}. Die Funktion \code{prefix_for} berechnet $p = w - \lceil\log_2 r\rceil$ mit der Bitlänge aus Lemma~\ref{lem:bitlen} und erfüllt Satz~\ref{satz:minimal}.
+Die Funktion \code{required_addresses} berechnet $r_i = \lceil\gamma h_i\rceil + o_i$ nach Definition~\ref{def:bedarf}; \code{ceil_product} aus \code{exact.py} rechnet exakt (Lemma~\ref{lem:exakt}) und vermeidet damit den Gleitkommafehler aus Lemma~\ref{lem:float}. Der Overhead $o_i$ ist der Standardwert oder der in der Gruppe gesetzte Wert (Satz~\ref{satz:robust}). Die Funktion \code{prefix_for} berechnet $p = w - \lceil\log_2 r\rceil$ mit der Bitlänge aus Lemma~\ref{lem:bitlen} und erfüllt Satz~\ref{satz:minimal}.
 
 \begin{beispiel}
 	Für die Gruppe \texttt{Entwicklung} ist $h=120$, $\gamma = 1{,}25$, $o = 3$. Es ist $r = 150 + 3 = 153$, $(r-1).\mathrm{bit\_length}() = 152.\mathrm{bit\_length}() = 8$, denn $152 = 10011000_2$ hat acht Stellen. Also $p = 32 - 8 = 24$.
@@ -686,9 +710,7 @@ Die Menge \code{used} enthält von Anfang an alle expliziten IDs. Dadurch kann e
     if cfg.allocation_strategy == "fixed":
         uniform = min(prefix for _, prefix in sized)  # kleinste Länge = größter Block
         sized = [(g, uniform) for g, _ in sized]
-        order = sorted(sized, key=lambda item: item[0].priority)
-    else:
-        order = sorted(sized, key=lambda item: (item[1], item[0].priority))
+    order = _ordered(sized, cfg.allocation_strategy)
 
     vlans = assign_vlans(cfg.groups)
     net_cls = type(base)
@@ -713,17 +735,17 @@ Die Menge \code{used} enthält von Anfang an alle expliziten IDs. Dadurch kann e
         cursor = start + size
 \end{lstlisting}
 
-Der Code entspricht Schritt~4. Python-Sortierung ist stabil, daher entscheidet bei gleichem Schlüssel die Dateireihenfolge. Die Variable \code{cursor} ist der Zeiger $c$. Die Zeile \code{start = -(-cursor // size) * size} ist das Aufrunden aus Lemma~\ref{lem:align}; bei \code{vlsm} ändert sie den Zeiger nie (Satz~\ref{satz:luecke}), sie ist also eine Sicherung und kein Platzverlust. Die beiden \code{raise}-Anweisungen sind genau die Fälle A und B aus dem Beweis von Satz~\ref{satz:existenz}.
+Der Code entspricht Schritt~4. Die Hilfsfunktion \code{_ordered} sortiert bei \code{fixed} nach der Priorität und bei \code{vlsm} nach (Präfixlänge, Priorität). Python-Sortierung ist stabil, daher entscheidet bei gleichem Schlüssel die Dateireihenfolge. Die Variable \code{cursor} ist der Zeiger $c$. Die Zeile \code{start = -(-cursor // size) * size} ist das Aufrunden aus Lemma~\ref{lem:align}; bei \code{vlsm} ändert sie den Zeiger nie (Satz~\ref{satz:luecke}), sie ist also eine Sicherung und kein Platzverlust. Die beiden \code{raise}-Anweisungen sind genau die Fälle A und B aus dem Beweis von Satz~\ref{satz:existenz}.
 
 \subsubsection{Freie Bereiche}
 
-\begin{lstlisting}[language=Python, caption={Freie Restbereiche (\texttt{planner.py})}]
-def _free_ranges(base: IPNetwork, nets: Sequence[IPNetwork]) -> Tuple[IPNetwork, ...]:
-    addr = type(base.network_address)
-    pos = int(base.network_address)
-    end = int(base.broadcast_address)
+\begin{lstlisting}[language=Python, caption={Freie Restbereiche (\texttt{blocks.py})}]
+def free_ranges_in_pool(pool: IPNetwork, occupied: Sequence[IPNetwork]) -> Tuple[IPNetwork, ...]:
+    addr = type(pool.network_address)
+    pos = int(pool.network_address)
+    end = int(pool.broadcast_address)
     free: List[IPNetwork] = []
-    for net in sorted(nets, key=lambda n: int(n.network_address)):
+    for net in sorted(occupied, key=lambda n: int(n.network_address)):
         start = int(net.network_address)
         if start > pos:
             free.extend(ipaddress.summarize_address_range(addr(pos), addr(start - 1)))
@@ -733,7 +755,7 @@ def _free_ranges(base: IPNetwork, nets: Sequence[IPNetwork]) -> Tuple[IPNetwork,
     return tuple(free)
 \end{lstlisting}
 
-Die Funktion läuft in Adressreihenfolge über die belegten Netze und fasst jede Lücke mit \code{summarize_address_range} zu minimal vielen Blöcken zusammen. Für die Pläne des Algorithmus gibt es nur die Lücke hinter dem letzten Netz (Abschnitt~\ref{sec:frei}); die Funktion ist allgemeiner und wird in den Tests auch mit Lücken vor und zwischen Netzen geprüft.
+Die Funktion liegt seit Version~1.1.0 in \code{blocks.py}; \code{planner._free_ranges} ruft sie auf. Sie läuft in Adressreihenfolge über die belegten Netze und fasst jede Lücke mit \code{summarize_address_range} zu minimal vielen Blöcken zusammen. Für die Pläne des Algorithmus gibt es nur die Lücke hinter dem letzten Netz (Abschnitt~\ref{sec:frei}); die Funktion ist allgemeiner und wird in den Tests auch mit Lücken vor und zwischen Netzen geprüft.
 
 \subsubsection{Firewall-Regeln}
 
@@ -773,24 +795,57 @@ Der Generator \code{_access_pairs} erzeugt genau die Menge $P$ aus Definition~\r
 
 \begin{lstlisting}[language=Python, caption={Konsistenzprüfung der Gruppen (\texttt{config.py})}]
 def _check_groups(groups: Sequence[Group]) -> None:
-    names = [g.name for g in groups]
-    duplicates = sorted({n for n in names if names.count(n) > 1})
+    """Validierung in O(n + a) mit Zählern statt ``list.count``."""
+    name_counts = Counter(g.name for g in groups)
+    duplicates = sorted(n for n, c in name_counts.items() if c > 1)
     if duplicates:
         raise PlanError(f"Doppelte Gruppennamen: {duplicates}")
 
-    vlans = [g.vlan_id for g in groups if g.vlan_id is not None]
-    dup_vlans = sorted({v for v in vlans if vlans.count(v) > 1})
+    vlan_counts = Counter(g.vlan_id for g in groups if g.vlan_id is not None)
+    dup_vlans = sorted(v for v, c in vlan_counts.items() if c > 1)
     if dup_vlans:
         raise PlanError(f"Doppelte VLAN-IDs: {dup_vlans}")
 
-    known = set(names)
+    known = set(name_counts)
     for g in groups:
         missing = sorted(set(g.access) - known)
         if missing:
             raise PlanError(f"Gruppe {g.name!r}: access verweist auf unbekannte Gruppen {missing}")
+
+    with_site = [g for g in groups if g.site is not None]
+    if with_site and len(with_site) != len(groups):
+        raise PlanError("'site' muss entweder für alle Gruppen oder für keine angegeben werden")
 \end{lstlisting}
 
-Diese Funktion stellt sicher, dass die Voraussetzungen von Lemma~\ref{lem:vlan} (paarweise verschiedene explizite VLAN-IDs) und von Satz~\ref{satz:firewall} (jedes Zugriffsziel ist eine existierende Gruppe, sodass \code{by_name[target]} nie fehlschlägt) erfüllt sind. Die Namensprüfung mit dem regulären Ausdruck \texttt{\^{}[\textbackslash w\textbackslash -\ ]+\$} verhindert, dass Sonderzeichen in Firewall-Kommentare oder ACL-Namen gelangen.
+Die Prüfung benötigt dank der Zähler nur $O(n+a)$ statt $O(n^2)$ Zeit. Anschließend entfernt \code{clean_access} Wiederholungen und Selbstbezüge (Satz~\ref{satz:dedup}). Die Funktion \code{_check_groups} stellt sicher, dass die Voraussetzungen von Lemma~\ref{lem:vlan} (paarweise verschiedene explizite VLAN-IDs) und von Satz~\ref{satz:firewall} (jedes Zugriffsziel ist eine existierende Gruppe, sodass \code{by_name[target]} nie fehlschlägt) erfüllt sind. Die Namensprüfung mit dem regulären Ausdruck \texttt{\^{}[\textbackslash w\textbackslash -\ ]+\$} verhindert, dass Sonderzeichen in Firewall-Kommentare oder ACL-Namen gelangen.
+
+\subsubsection{Module der Erweiterungen}
+\label{sec:module}
+
+Die Erweiterungen aus Abschnitt~\ref{sec:ausblick} liegen in eigenen Modulen, sodass der Kern aus diesem Abschnitt unverändert bleibt. Für Pläne mit einem Pool und ohne Bestand läuft weiterhin genau der Algorithmus aus Abschnitt~3 (\code{_plan_simple}); nur bei \code{existing}, \code{pools} oder festen Netzen (\code{network}) übernimmt \code{_plan_general}, bei Standorten (\code{site}) \code{plan_hierarchical}. So bleiben die Sätze~\ref{satz:luecke} und \ref{satz:kompakt} für den Normalfall gültig.
+
+\begin{center}
+\small
+\begin{tabular}{p{3.0cm}p{11.8cm}}
+\toprule
+Modul & Aufgabe \\
+\midrule
+\texttt{exact.py} & exakte Bedarfsrechnung $\lceil\gamma h\rceil$ (Lemma~\ref{lem:exakt}) \\
+\texttt{blocks.py} & freie Bereiche, Bedingung $(\ast)$, konstruktive Zuteilung (Sätze~\ref{satz:pack}, \ref{satz:bestand}) \\
+\texttt{access.py} & Zugriffsmatrix, \code{clean_access} (Satz~\ref{satz:dedup}), \code{rule_groups} (Satz~\ref{satz:gruppe}) \\
+\texttt{semantics.py} & Referenzurteile der Regelwerke (Sätze~\ref{satz:firewall}, \ref{satz:cisco}) \\
+\texttt{hierarchy.py} & Standortblöcke und Gruppen darin (Satz~\ref{satz:hier}) \\
+\texttt{extend.py} & Plan einlesen, erweitern, verdoppeln (Korollar~\ref{kor:erweiterung}, Satz~\ref{satz:verdopplung}) \\
+\texttt{roundtrip.py} & Regeln zurücklesen und mit $P$ vergleichen \\
+\texttt{verify.py} & unabhängige Prüfung eines Plans gegen die Sätze \\
+\texttt{stats.py} & Auslastung, Verschnitt, Poisson-Dimensionierung (Satz~\ref{satz:mittel}) \\
+\texttt{checks.py} & Warnungen (Adressbereich, VPN-Überschneidung, Auslastung) \\
+\texttt{policy.py} & Richtlinienvergleich mit dem Subgraph Algorithmus (Abschnitt~\ref{sec:subgraph-verbindung}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Die Firewall-Optionen sind in der Datenklasse \code{FirewallOptions} gebündelt (\code{idempotent}, \code{group_rules}, \code{cisco_return}, \code{ascii_names}, \code{log_drops}, \code{icmpv6_types}); die Kommandozeile bildet sie auf \texttt{--no-idempotent}, \texttt{--group-rules}, \texttt{--cisco-return}, \texttt{--ascii-names}, \texttt{--log-drops} und \texttt{--icmpv6} ab. Berichte (\texttt{--verify}, \texttt{--roundtrip}, \texttt{--warnings}, \texttt{--stats}, \texttt{--compare}) gehen auf die Fehlerausgabe, damit die Standardausgabe maschinenlesbar bleibt; eine fehlgeschlagene Prüfung ergibt den Rückgabewert $1$.
 
 \section{Analyse}
 
@@ -881,7 +936,7 @@ Eine Alternative zur sortierten Zuteilung ist ein binärer Baum über dem Adress
 \subsection{Experimentelle Überprüfung}
 \label{sec:tests}
 
-Die Testsuite des Projekts umfasst $127$ Tests und erreicht laut Bericht $100\,\%$ Zeilen- und Zweigabdeckung für alle Module (\texttt{cli.py}: $54$ Anweisungen, \texttt{config.py}: $96$, \texttt{firewall.py}: $47$, \texttt{models.py}: $68$, \texttt{planner.py}: $84$, \texttt{render.py}: $35$; zusammen $384$ Anweisungen und $108$ Zweige). Einzelne Tests prüfen unmittelbar die Aussagen dieser Arbeit:
+Die Testsuite der Version~1.0.0 umfasste $127$ Tests und erreichte laut Bericht $100\,\%$ Zeilen- und Zweigabdeckung für alle Module (\texttt{cli.py}: $54$ Anweisungen, \texttt{config.py}: $96$, \texttt{firewall.py}: $47$, \texttt{models.py}: $68$, \texttt{planner.py}: $84$, \texttt{render.py}: $35$; zusammen $384$ Anweisungen und $108$ Zweige). Version~1.1.0 umfasst $247$ Tests; neu sind Testdateien für Blockalgebra, Zugriff und Semantik, Bestandsplanung, Hierarchie und Erweiterung, Firewall-Optionen mit Rückübersetzung, Prüfung, Statistik und Warnungen, Richtlinienvergleich, die erweiterte Kommandozeile sowie seeded Zufallstests der Sätze (\texttt{tests/test\_properties.py}). Eine Ersatzmessung ohne \texttt{coverage.py} (Zeilen- und Verzweigungsaufzeichnung mit \code{sys.settrace}, Anweisungen mit \code{# pragma: no cover} ausgenommen) fand alle $1\,652$ ausführbaren Anweisungen ausgeführt und jede verzweigende Anweisung in beiden Richtungen durchlaufen; maßgeblich bleibt der Bericht von \code{pytest --cov}. Einzelne Tests prüfen unmittelbar die Aussagen dieser Arbeit:
 
 \begin{lstlisting}[language=Python, caption={Test zu (K1) bis (K3) und Satz~\ref{satz:frei} (\texttt{test\_planner.py})}]
 def test_networks_are_aligned_and_do_not_overlap():
@@ -943,6 +998,30 @@ for it in range(20000):
     assert sorted(f.num_addresses for f in plan.free_ranges) == \
            [1 << b for b in range(F.bit_length()) if F >> b & 1]
 \end{lstlisting}
+
+\paragraph{Prüfung der Erweiterungen.} Das Skript \texttt{science/pruefe-erweiterungen.py} prüft die Aussagen aus Abschnitt~\ref{sec:ausblick} gegen die Implementierung (feste Zufallsstarts, Aufruf \texttt{PYTHONPATH=. python science/pruefe-erweiterungen.py}):
+
+\begin{center}
+\small
+\begin{tabular}{p{3.6cm}p{7.6cm}p{3.3cm}}
+\toprule
+Aussage & Prüfung & Ergebnis \\
+\midrule
+Satz~\ref{satz:pack} & Bedingung $(\ast)$ gegen vollständige Suche in $32$ Adressen & $4000/4000$ \\
+Satz~\ref{satz:robust} & Pläne mit Mindestgröße und eigenem Overhead (IPv4, IPv6) erfüllen alle Eigenschaften & $2000/2000$ \\
+Satz~\ref{satz:gruppe} & gleiche Paarmenge und $|\mathcal{T}| \le n$ & $2000/2000$ \\
+Satz~\ref{satz:dedup} & genau $|P|$ Regeln nach der Bereinigung & $2000/2000$ \\
+Satz~\ref{satz:hier} & $E_\sigma < 2D_\sigma$ und $\sum E_\sigma < 2\sum s_i < 4\sum r_i$ & $1000/1000$ \\
+Rückübersetzung & $P' = P$ (drei Plattformen, zwei Optionssätze, $300$ Pläne) & $1800/1800$ \\
+Korollar~\ref{kor:erweiterung} & Erweiterung gelingt genau dann, wenn die Summe $\le F$ & $1500/1500$ \\
+Satz~\ref{satz:verdopplung} & Verdopplung korrekt und ohne Umnummerierung (Gateway \code{first}/\code{none}) & $234/234$ \\
+Satz~\ref{satz:mittel} & Monte-Carlo-Mittel bei $400\,000$ Stichproben & $0{,}7210$ (Soll $0{,}7213$) \\
+Lemma~\ref{lem:richtlinie} & $P \subseteq P'$ gegen Paketurteile an Stichprobenadressen & $1500/1500$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Beim Schreiben der Tests fiel ein Fehler auf, den die Beweise nicht ausschließen: Feste Netze (\code{network}) wurden zunächst nicht darauf geprüft, ob sie den Bedarf der Gruppe fassen. Das ist behoben und durch einen eigenen Test abgesichert. Die Rückübersetzung ist ein Test, kein Beweis: Fehler, die Generator und Leser gleichermaßen machen, blieben unentdeckt; deshalb vergleichen die Tests zusätzlich Paketurteile (Sätze~\ref{satz:firewall} und \ref{satz:cisco}) mit den zurückgelesenen Regeln. Die Ergebnisse zum Subgraph Algorithmus stehen in Bemerkung~\ref{bem:heuristik}.
 
 \lstdefinelanguage{yaml}{morecomment=[l]{\#}, sensitive=true}
 
@@ -1313,6 +1392,8 @@ Der Subnetting Algorithmus \texttt{sbntgg} bietet eine effiziente und beweisbar 
 	\item der Sortierung nach absteigender Größe, die lückenlos und optimal ist (Sätze~\ref{satz:luecke}, \ref{satz:kompakt})
 	\item exakter Beschreibung der freien Bereiche als Binärdarstellung (Satz~\ref{satz:frei}) und verlustfreier Erweiterbarkeit (Korollar~\ref{kor:erweiterung})
 	\item Default-Deny-Regeln mit bewiesener Semantik (Satz~\ref{satz:firewall})
+	\item Bestandsplanung mit exakter Packbarkeitsbedingung (Sätze~\ref{satz:pack}, \ref{satz:bestand}), Mindestgrößen und eigenem Overhead (Satz~\ref{satz:robust}), zweistufiger Planung (Satz~\ref{satz:hier}) und Verdopplung an Ort und Stelle (Satz~\ref{satz:verdopplung})
+	\item Regelgruppierung (Satz~\ref{satz:gruppe}) und einer Rückübersetzung der erzeugten Regeln als Test
 \end{itemize}
 
 erreicht der Algorithmus im Kern die optimale Laufzeit $\Theta(n\log n)$ im Vergleichsmodell und vermeidet naive Ansätze, die $n!$ Reihenfolgen durchsuchen müssten.
@@ -1328,14 +1409,40 @@ Der Algorithmus eignet sich besonders für:
 	\item Automatisierte Tests von Netzwerk-Entwürfen (Plan als Datei im Versionsverwaltungssystem)
 \end{itemize}
 
-\subsection{Ausblick}
+\subsection{Erweiterungen: Umsetzung und Ausblick}
 \label{sec:ausblick}
 
-Der Ausblick gliedert sich in sieben Bereiche. Wo immer möglich, werden die Vorschläge formal begründet.
+Dieser Abschnitt enthielt in der ersten Fassung nur Vorschläge. Die meisten sind in Version~1.1.0 umgesetzt; die Beweise bleiben hier stehen und werden durch Angaben zu Modul, Kommandozeile und Prüfung ergänzt (Tabelle~\ref{tab:status}). Offen bleiben Protokolle und Ports, weitere Plattformen, die Integrationen (DHCP, DNS, IPAM), mehrere Netze je Gruppe und die theoretischen Fragen am Ende des Abschnitts.
+
+\begin{center}
+\small
+\begin{tabular}{p{4.3cm}p{3.5cm}p{3.9cm}l}
+\toprule
+Erweiterung & Aussage & Modul & Stand \\
+\midrule
+Bereinigung \code{access}, Warnungen & Satz~\ref{satz:dedup} & \texttt{access.py}, \texttt{checks.py} & umgesetzt \\
+Validierung $O(n)$, Cisco $O(n+a)$ & Satz~\ref{satz:optimal} & \texttt{config.py}, \texttt{firewall.py} & umgesetzt \\
+Cisco-Rückverkehr & Satz~\ref{satz:cisco} & \texttt{firewall.py} & umgesetzt \\
+Exakte Arithmetik & Lemma~\ref{lem:exakt} & \texttt{exact.py} & umgesetzt \\
+Idempotenz, ASCII, ICMPv6, Logging & --- & \texttt{firewall.py} & umgesetzt \\
+Regelgruppierung & Satz~\ref{satz:gruppe} & \texttt{access.py}, \texttt{firewall.py} & umgesetzt \\
+Bestand, Pools, feste Netze & Satz~\ref{satz:bestand} & \texttt{blocks.py}, \texttt{planner.py} & umgesetzt \\
+Mindestgrößen, Overhead & Satz~\ref{satz:robust} & \texttt{planner.py} & umgesetzt \\
+Hierarchie & Satz~\ref{satz:hier} & \texttt{hierarchy.py} & umgesetzt \\
+Auslastung, Poisson & Satz~\ref{satz:mittel} & \texttt{stats.py} & umgesetzt \\
+Erweitern, Verdoppeln & Korollar~\ref{kor:erweiterung}, Satz~\ref{satz:verdopplung} & \texttt{extend.py} & umgesetzt \\
+Rückübersetzung & --- & \texttt{roundtrip.py} & umgesetzt \\
+Richtlinienvergleich & Lemma~\ref{lem:richtlinie}, Bemerkung~\ref{bem:heuristik} & \texttt{policy.py} & umgesetzt \\
+Prüfung eines Plans & Sätze des Kerns & \texttt{verify.py} & umgesetzt \\
+Ports, Plattformen, Integrationen & --- & --- & offen \\
+\bottomrule
+\end{tabular}
+\label{tab:status}
+\end{center}
 
 \subsubsection{Verbesserungen am bestehenden Programm}
 
-Die Analyse dieser Arbeit hat konkrete Verbesserungsmöglichkeiten sichtbar gemacht:
+Die Analyse der ersten Fassung hatte acht Verbesserungsmöglichkeiten sichtbar gemacht; sie sind alle umgesetzt (Umsetzung im Anschluss an die Liste):
 
 \begin{enumerate}
 	\item \textbf{Wiederholungen und Selbstbezug in \texttt{access} bereinigen.} Der Code erzeugt für wiederholte Ziele identische Regeln, und eine Gruppe darf sich selbst nennen (die Regel wird übersprungen). Eine Warnung hilft dem Anwender, Tippfehler zu erkennen.
@@ -1347,6 +1454,8 @@ Die Analyse dieser Arbeit hat konkrete Verbesserungsmöglichkeiten sichtbar gema
 	\item \textbf{Plattform-konforme Namen.} Gruppen wie \texttt{Gäste} ergeben ACL-Namen mit Umlaut (\texttt{ACL-40-GÄSTE}). Manche Plattformen akzeptieren nur ASCII; eine Transliteration (\texttt{Ä} $\to$ \texttt{AE}) mit Eindeutigkeitsprüfung wäre sinnvoll (Eindeutigkeit bleibt durch die VLAN-ID im Namen gesichert).
 	\item \textbf{ICMPv6 und Pfad-MTU.} Bei IPv6 sollten mindestens die weitergeleiteten Fehlermeldungen (Paket zu groß) durch \texttt{related} abgedeckt sein; weitere ICMPv6-Typen können konfigurierbar freigegeben werden.
 \end{enumerate}
+
+\paragraph{Umsetzung.} (1) \code{clean_access} in \code{access.py} entfernt Wiederholungen und Selbstbezüge schon beim Laden und liefert je Fund eine Warnung (\texttt{--warnings}). (2) \code{_check_groups} zählt mit \code{collections.Counter} in $O(n+a)$. (3) \code{_pairs_by_source} gruppiert die Zugriffspaare einmal nach Quelle. (4) \texttt{--cisco-return established} erzeugt \texttt{permit tcp} $N_j$ $N_i$ \texttt{established} in der ACL von $g_j$ für jedes Paar $(i,j)\in P$ ohne Gegenpaar $(j,i)\in P$ (\code{asymmetric_pairs}); die Menge der neuen Verbindungen bleibt $P$, und UDP sowie ICMP bleiben wie oben beschrieben ungedeckt, worauf \texttt{--warnings} hinweist. (5) \code{exact.py}, Lemma~\ref{lem:exakt}. (6) Das \texttt{iptables}-Skript entfernt zuerst alle Sprungregeln und die Kette (\texttt{--no-idempotent} schaltet das ab). (7) \texttt{--ascii-names} transliteriert Namen in ACLs und Kommentaren (\texttt{Ä}\,$\to$\,\texttt{AE}, \texttt{ß}\,$\to$\,\texttt{ss}); die VLAN-ID im Namen sichert die Eindeutigkeit. (8) \texttt{--icmpv6 TYPEN} gibt weitere ICMPv6-Typen frei, nur bei IPv6; die Typnamen werden gegen \code{[a-z0-9-]} geprüft, damit nichts in das Skript eingeschleust werden kann.
 
 \begin{satz}[Bereinigung von \code{access}]
 \label{satz:dedup}
@@ -1372,6 +1481,13 @@ Gruppen mit gleicher Zielmenge lassen sich zu einer Regel mit Mengen zusammenfas
 
 Im Beispiel sind $T(\text{Server}) = T(\text{HR}) = \{\text{Drucker}\}$ und $T(\text{Entwicklung}) = \{\text{Server},\text{Drucker}\}$: Statt vier Regeln genügen zwei. Eine \emph{minimale} Regelzahl zu finden ist allgemein schwerer: Das Überdecken der Paare $P$ durch möglichst wenige Rechtecke $S \times T$ ist das Problem der Überdeckung durch vollständige bipartite Teilgraphen, das als NP-schwer bekannt ist \cite{orlin77,gj79}. Die Gruppierung nach gleichen Zielmengen ist daher eine einfache, polynomielle Heuristik.
 
+\paragraph{Umsetzung.} \texttt{--group-rules} fasst die Regeln nach Satz~\ref{satz:gruppe} zusammen (\code{rule_groups} in \code{access.py}). Für das Konfigurationsbeispiel erzeugt \texttt{nftables} zwei statt vier Regeln:
+\begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize]
+ip saddr { 10.20.0.0/24 } ip daddr { 10.20.1.128/26, 10.20.2.0/27 } accept comment "Entwicklung -> Server,Drucker"
+ip saddr { 10.20.1.128/26, 10.20.1.192/26 } ip daddr { 10.20.2.0/27 } accept comment "Server,HR -> Drucker"
+\end{lstlisting}
+Bei \texttt{iptables} entsteht je Regelgruppe ein Paar von \texttt{ipset}-Mengen (\texttt{hash:net}) und eine Regel mit \texttt{-m set --match-set}. Bei Cisco werden nur die Zielmengen zu \texttt{object-group network} zusammengefasst, denn die Quelle ist stets das eigene Netz der ACL; bei IPv6 bleibt die Cisco-Ausgabe ungruppiert. Die Rückübersetzung bestätigt für alle drei Plattformen, dass die gruppierten Regeln dieselbe Paarmenge $P$ ergeben.
+
 \subsubsection{Erweiterungen der Planung}
 
 \paragraph{Bestandsnetze, feste Blöcke und mehrere Pools.} Oft sind Teile des Adressraums bereits vergeben, oder es stehen mehrere Basisnetze zur Verfügung. Sei $\mathcal{M}$ die Menge der maximalen freien Blöcke (aus jeder maximalen freien Lücke die minimale CIDR-Zerlegung, ergänzt um die Pools).
@@ -1387,6 +1503,13 @@ Im Beispiel sind $T(\text{Server}) = T(\text{HR}) = \{\text{Drucker}\}$ und $T(\
 
 Damit sind exakte Planbarkeitstests mit festen Blöcken (\texttt{network: 10.20.5.0/24} in der Gruppe) und mit mehreren Pools möglich. Das konstruktive Verfahren aus dem Beweis von Satz~\ref{satz:pack} (größte Gruppe zuerst in den kleinsten ausreichend großen freien Block) liefert die Zuteilung.
 
+\begin{bemerkung}[Platzierungsreihenfolge]
+\label{bem:reihenfolge}
+	Für das Gelingen genügt es, einen Auftrag in irgendeinen freien Block zu legen, dessen Restkapazität mindestens die Auftragsgröße hat. Bei absteigender Bearbeitung ist der Füllstand eines Blocks eine Summe von Zweierpotenzen, die nicht kleiner als die aktuelle Größe sind, also ein Vielfaches der aktuellen Größe, und die Startadresse (Blockanfang plus Füllstand) ist daher ausgerichtet. Die Zahl der noch freien Plätze der Größe $2^j$ ist $(R_j - \text{bisher Platziertes})/2^j$ und nach Bedingung $(\ast)$ mindestens so groß wie die Zahl der noch offenen Aufträge dieser Klasse. Daher findet jeder Auftrag einen Block, unabhängig davon, welchen geeigneten Block man früher gewählt hat. \code{pack} in \code{blocks.py} wählt den Block mit der kleinsten ausreichenden Restkapazität (bei Gleichstand die kleinere Adresse); das legt nur die Zuteilung fest, nicht ihre Existenz.
+\end{bemerkung}
+
+\paragraph{Umsetzung.} \code{maximal_free_blocks} bestimmt $\mathcal{M}$ (und meldet überlappende oder außerhalb liegende Bestandsnetze als Fehler), \code{packable} prüft $(\ast)$, \code{pack} teilt zu. In der Konfiguration stehen \code{existing} (Bestand), \code{pools} (weitere Basisnetze) und je Gruppe \code{network} (fester Block). Der Vergleich von $(\ast)$ mit einer vollständigen Suche ergab in $4000$ von $4000$ Fällen dasselbe Ergebnis.
+
 \paragraph{Mindestgrößen, Overhead und Sonderfälle.}
 
 \begin{satz}[Robustheit gegenüber Mindestgrößen]
@@ -1400,6 +1523,13 @@ Damit sind exakte Planbarkeitstests mit festen Blöcken (\texttt{network: 10.20.
 
 Das deckt mehrere praktische Wünsche ab: (i) \emph{IPv6-Praxis}: Mit $p_{\max} = 64$ erhält jede Gruppe mindestens ein \texttt{/64} \cite{rfc7421}; in einem \texttt{/48} stehen $2^{16} = 65\,536$ solche Netze bereit. (ii) \emph{Punkt-zu-Punkt-Links}: Mit $o = 0$ ergibt sich für zwei Geräte ein \texttt{/31} (IPv4, \cite{rfc3021}) beziehungsweise \texttt{/127} (IPv6, \cite{rfc6164}). (iii) \emph{Cloud-Plattformen}, die je Subnetz eine feste Zahl von Adressen reservieren (bei einigen Anbietern fünf), werden durch ein entsprechendes $o$ abgebildet.
 
+\begin{bemerkung}[Adressen bei eigenem Overhead]
+\label{bem:overhead}
+	Bei einem in der Gruppe gesetzten Overhead $o$ reserviert der Code $o$ Adressen in dieser Reihenfolge: die Netzadresse (falls $o\ge1$), die Broadcast-Adresse (nur IPv4, falls $o\ge2$), den Gateway (falls die Position nicht \code{none} ist und noch Reserve bleibt), danach weitere Adressen am Blockanfang. Dann gilt $u = s - o$ (Lemma~\ref{lem:usable}) für jedes $o \le s-1$; wegen $s \ge r = \lceil\gamma h\rceil + o$ ist das immer erfüllt. Bei $o = 0$ sind beide Blockenden nutzbar (\texttt{/31}, \texttt{/127}) und es gibt weder Gateway noch Broadcast. Ist $o$ kleiner als der Standard, fehlt der Gateway oder der Broadcast entsprechend.
+\end{bemerkung}
+
+\paragraph{Umsetzung.} \code{max_prefix} (\texttt{--max-prefix}) legt die Mindestgröße $2^{w-p_{\max}}$ fest, \code{overhead} den Overhead je Gruppe; beides geht in \code{group_prefix} und \code{required_addresses} ein. \code{verify_plan} prüft deshalb bei solchen Plänen nur die Eigenschaften, die Satz~\ref{satz:robust} erhält, und nicht (K6) und die Verschnittschranke.
+
 \paragraph{Hierarchische Planung.} In größeren Organisationen erhält jeder Standort $\sigma$ zuerst einen eigenen Block, aus dem seine Gruppen geplant werden. Das ermöglicht Routen-Aggregation: ein einziger Eintrag je Standort statt einer je Gruppe.
 
 \begin{satz}[Zweistufige Planung]
@@ -1410,6 +1540,8 @@ Das deckt mehrere praktische Wünsche ab: (i) \emph{IPv6-Praxis}: Mit $p_{\max} 
 \begin{proof}
 	Es ist $D_\sigma \le E_\sigma$, also passt die Summe in den Block, und Satz~\ref{satz:existenz} garantiert die Planbarkeit. Nach Satz~\ref{satz:minimal}, angewandt auf $D_\sigma$, gilt $E_\sigma < 2D_\sigma$. Summation über die Standorte und Satz~\ref{satz:verschnitt} liefern die Ketten.
 \end{proof}
+
+\paragraph{Umsetzung.} Gruppen erhalten den Schlüssel \code{site} (für alle oder für keine). \code{plan_hierarchical} legt zuerst die Standortblöcke an (absteigend nach Größe, bei Gleichstand nach kleinster Priorität und Reihenfolge) und plant dann die Gruppen jedes Standorts im eigenen Block mit demselben Algorithmus; bei \code{fixed} ist $D_\sigma = n_\sigma \max s_i$. Im Beispiel mit den Gruppen von $100$, $20$ Hosts (Berlin) und $50$, $10$ Hosts (Hamburg) in \texttt{10.0.0.0/16} ist $D_{\text{Berlin}} = 128 + 32 = 160$ und $D_{\text{Hamburg}} = 128 + 16 = 144$; beide Standorte erhalten ein \texttt{/24}, und statt vier Routen genügen zwei. Die Kombination mit \code{existing}, \code{pools} oder festen Netzen wird abgelehnt.
 
 \paragraph{Dimensionierung der Wachstumsreserve.} Der Faktor $\gamma$ ist bisher eine Konstante. Unter einem Wachstumsmodell (zum Beispiel $H_i \sim \text{Poisson}(\lambda_i)$) kann man pro Gruppe das kleinste $k$ wählen, für das $\Pr[H_i + o \le 2^k] \ge 1-\alpha$ gilt. Wie viel Platz die Zweierpotenzen im Mittel verschwenden, zeigt der folgende Satz.
 
@@ -1427,18 +1559,31 @@ Das deckt mehrere praktische Wünsche ab: (i) \emph{IPv6-Praxis}: Mit $p_{\max} 
 
 Im Mittel nutzt ein Block also etwa $72\,\%$ seiner Adressen für Bedarf und Reserve; im ungünstigsten Fall liegt die Auslastung knapp über $50\,\%$ (Satz~\ref{satz:verschnitt}).
 
-\paragraph{Inkrementelle Planung und minimale Umnummerierung.} Nach Korollar~\ref{kor:erweiterung} verliert eine inkrementelle Ergänzung keine Kapazität gegenüber einer Neuplanung. Eine eigene Betriebsart (\texttt{subnetplan --extend plan.json neue.yaml}) würde bestehende Netze unverändert lassen. Offen ist die Frage, wie man bei wachsenden Gruppen die Zahl der umzunummerierenden Geräte minimiert: Ein Netz lässt sich an Ort und Stelle verdoppeln, wenn es die linke Hälfte seines Elternblocks ist und dessen rechte Hälfte frei ist.
+\paragraph{Umsetzung.} \code{plan_statistics} in \code{stats.py} liefert Blockauslastung je Gruppe, Mittel, Minimum und Verschnitt eines Plans (\texttt{--stats}); \code{simulate_mean_utilization} schätzt den Erwartungswert aus Satz~\ref{satz:mittel} (Ergebnis $0{,}7210$ bei $400\,000$ Stichproben, Soll $0{,}7213$). \code{poisson_block_exponent} bestimmt für das Wachstumsmodell das kleinste $k$ mit $\Pr[H+o\le2^k]\ge1-\alpha$; für $\lambda=100$, $o=3$ und $\alpha=0{,}01$ ergibt sich $k=7$, also ein \texttt{/25}.
+
+\paragraph{Inkrementelle Planung und Verdopplung.} Nach Korollar~\ref{kor:erweiterung} verliert eine inkrementelle Ergänzung keine Kapazität gegenüber einer Neuplanung. \texttt{subnetplan neue.yaml --extend plan.json} liest einen mit \texttt{--format json} erzeugten Plan ein (\code{plan_from_json}) und legt die neuen Gruppen mit dem Verfahren aus Satz~\ref{satz:pack} in die freien Blöcke. Alle bestehenden Subnetze, VLAN-IDs und Zugriffslisten bleiben unverändert, neue VLAN-IDs vermeiden die vorhandenen, und \code{access} der neuen Gruppen darf auf bestehende Gruppen verweisen.
+
+\begin{satz}[Verdopplung an Ort und Stelle]
+\label{satz:verdopplung}
+	Sei $N$ das Netz einer Gruppe, $\hat N$ sein Elternblock (doppelte Größe, in einem Pool) und $R$ die andere Hälfte von $\hat N$. Ist $N$ die linke Hälfte von $\hat N$ und liegt $R$ vollständig im freien Adressraum des Plans, so ist der Plan, in dem $N$ durch $\hat N$ ersetzt wird, wieder korrekt im Sinne von Satz~\ref{satz:korrekt} (K1) bis (K4); Netzadresse und VLAN-ID bleiben gleich, und bei Gateway \code{first} oder \code{none} behalten alle bisherigen Host-Adressen ihre Bedeutung. Ist $N$ die rechte Hälfte oder ist $R$ nicht frei, so ist eine Verdopplung ohne Verschieben anderer Netze oder der Netzadresse nicht möglich.
+\end{satz}
+
+\begin{proof}
+	Nach Lemma~\ref{lem:laminar} ist $\hat N$ ein ausgerichteter Block, der $N$ und $R$ enthält. Da $R$ frei ist, überlappt $\hat N$ kein anderes Subnetz (K3); er liegt im Pool (K2) und ist ausgerichtet (K1). Er ist größer als $N$, fasst also mindestens den Bedarf (K4). Die Netzadresse von $\hat N$ ist die von $N$, weil $N$ die linke Hälfte ist; Gateway \code{first} liegt bei Netzadresse $+1$, und die alte Broadcast-Adresse wird zu einer gewöhnlichen Host-Adresse. Ist $N$ die rechte Hälfte, beginnt $\hat N$ links von $N$ und die Netzadresse ändert sich; ist $R$ belegt, entstünde eine Überlappung.
+\end{proof}
+
+\code{can_double} prüft die Bedingung, \code{double_in_place} führt die Verdopplung aus, \code{renumbered_hosts} zählt die dabei geänderten Adressen (bei Gateway \code{last} wandert der Gateway ans neue Blockende). In der Prüfung ergaben $234$ von $234$ möglichen Verdopplungen einen korrekten Plan ohne Umnummerierung der Hosts (bei Gateway \code{first} und \code{none}). Offen bleibt, wie man bei mehreren wachsenden Gruppen die Gesamtzahl der umzunummerierenden Geräte minimiert.
 
 \paragraph{Mehrere Netze je Gruppe.} Erlaubt man einer Gruppe mehrere Subnetze (zum Beispiel für sehr große Gruppen oder per Sekundäradresse), so lässt sich ihr Bedarf in Zweierpotenzen zerlegen; jedes Teilnetz hat jedoch eigene Overhead-Adressen. Die Abwägung zwischen weniger Verschnitt und mehr Overhead ist eine offene Optimierungsfrage.
 
 \subsubsection{Erweiterungen der Firewall-Erzeugung}
 
 \begin{itemize}
-	\item \textbf{Protokolle und Ports.} \texttt{access} könnte Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert.
-	\item \textbf{Mengen und Objektgruppen.} Die Gruppierung aus Satz~\ref{satz:gruppe} lässt sich als \texttt{nftables}-Mengen, \texttt{ipset} oder \texttt{object-group} (Cisco) ausgeben.
-	\item \textbf{Protokollierung} verworfener Pakete und zeitlich begrenzte Freigaben.
-	\item \textbf{Rückübersetzung als Test.} Die erzeugten Regeln werden wieder eingelesen und die daraus rekonstruierte Menge $P'$ mit $P$ verglichen. Gilt immer $P' = P$, ist der Generator korrekt im Sinne von Satz~\ref{satz:firewall}.
-	\item \textbf{Weitere Plattformen:} Juniper, MikroTik, pfSense/OPNsense, Palo Alto, Cloud-Sicherheitsgruppen. Jede Plattform braucht ihre eigene Semantik-Aussage analog zu den Sätzen~\ref{satz:firewall} und \ref{satz:cisco}.
+	\item \textbf{Protokolle und Ports} (offen). \texttt{access} könnte Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert.
+	\item \textbf{Mengen und Objektgruppen} (umgesetzt, \texttt{--group-rules}). Die Gruppierung aus Satz~\ref{satz:gruppe} wird als \texttt{nftables}-Menge, \texttt{ipset} oder \texttt{object-group} (Cisco) ausgegeben.
+	\item \textbf{Protokollierung} verworfener Pakete (umgesetzt, \texttt{--log-drops}); zeitlich begrenzte Freigaben sind offen.
+	\item \textbf{Rückübersetzung als Test} (umgesetzt, \texttt{--roundtrip}, \code{roundtrip.py}). Die erzeugten Regeln werden wieder eingelesen und die daraus rekonstruierte Menge $P'$ mit $P$ verglichen; zusätzlich muss das Regelwerk alles Übrige verwerfen (Default-Deny erkannt). Gilt immer $P' = P$, stimmen Generator und Leser mit Satz~\ref{satz:firewall} überein. Das ist ein Test und kein Beweis, denn gleiche Fehler in beiden Teilen bleiben unentdeckt.
+	\item \textbf{Weitere Plattformen} (offen): Juniper, MikroTik, pfSense/OPNsense, Palo Alto, Cloud-Sicherheitsgruppen. Jede Plattform braucht ihre eigene Semantik-Aussage analog zu den Sätzen~\ref{satz:firewall} und \ref{satz:cisco}.
 \end{itemize}
 
 \subsubsection{Verbindung zum Subgraph Algorithmus}
@@ -1457,6 +1602,7 @@ Z = \begin{pmatrix}
 Die Signaturen $\sigma_j = \sum_i Z_{ij}2^i + j\cdot 2^n$ des Subgraph Algorithmus sind für $n = 5$ gleich $[2,\,32,\,64,\,103,\,128]$: Spalte $0$ hat nur an Zeile $1$ eine Eins ($2^1 = 2$), Spalte $3$ hat Einsen in den Zeilen $0,1,2$ ($1 + 2 + 4 = 7$, dazu $3\cdot32 = 96$).
 
 \begin{lemma}[Richtlinienvergleich bei gleichen Subnetzen]
+\label{lem:richtlinie}
 	Seien zwei Richtlinien $P, P'$ über denselben Subnetzen $N_1,\ldots,N_n$ (alle nichtleer) gegeben. Dann nimmt die erste Regelliste jedes neue Paket an, das die zweite annimmt, genau dann, wenn $P' \subseteq P$, also $Z' \le Z$ komponentenweise, also $G_{Z'} \subseteq G_Z$ als Subgraph.
 \end{lemma}
 
@@ -1464,7 +1610,23 @@ Die Signaturen $\sigma_j = \sum_i Z_{ij}2^i + j\cdot 2^n$ des Subgraph Algorithm
 	\glqq$\Leftarrow$\grqq: Nach Satz~\ref{satz:firewall} wird ein Paket genau bei einem Paar in der Richtlinie angenommen, und $P'\subseteq P$ überträgt das. \glqq$\Rightarrow$\grqq: Gäbe es $(i,j)\in P'\setminus P$, so wähle $x\in N_i$, $y\in N_j$ (nichtleer). Die zweite Liste nimmt $(x,y,\textsc{neu})$ an, die erste verwirft es nach Satz~\ref{satz:firewall} (die Gruppen sind eindeutig), ein Widerspruch.
 \end{proof}
 
-Bei übereinstimmender Beschriftung ist der Vergleich ein einfacher Vergleich der Einträge in $O(n^2)$. Der Subgraph Algorithmus wird interessant, wenn zwei Konfigurationen dieselbe Struktur in unterschiedlicher, zyklisch verschobener Gruppenreihenfolge beschreiben, etwa beim Zusammenführen von Richtlinien nach einer Umordnung: Dann liefert die Rotation der Signaturen die Entscheidung, welche Richtlinie die andere enthält (behalte die allgemeinere, verwerfe die enthaltene). Auch die in der Einführung des Subgraph Algorithmus genannte Verifikation von Programmen über Syntaxbäume hat eine Parallele: Ein Plan lässt sich als Graph über Subnetz-Blöcken (Teilbaum-Beziehung nach Lemma~\ref{lem:laminar}) vergleichen.
+Bei übereinstimmender Beschriftung ist der Vergleich ein einfacher Vergleich der Einträge in $O(n^2)$ (\code{matrix_included}, \code{compare_policies} in \code{policy.py}). Der Subgraph Algorithmus ist für den Fall gedacht, dass zwei Konfigurationen dieselbe Struktur in unterschiedlicher, zyklisch verschobener Gruppenreihenfolge beschreiben, etwa beim Zusammenführen von Richtlinien nach einer Umordnung. Seine Entscheidung ist dafür jedoch nicht verlässlich genug (Bemerkung~\ref{bem:heuristik}). Auch die in der Einführung des Subgraph Algorithmus genannte Verifikation von Programmen über Syntaxbäume hat eine Parallele: Ein Plan lässt sich als Graph über Subnetz-Blöcken (Teilbaum-Beziehung nach Lemma~\ref{lem:laminar}) vergleichen.
+
+\begin{bemerkung}[Der Subgraph Algorithmus ist eine Heuristik]
+\label{bem:heuristik}
+	Die vorliegende Fassung von \texttt{subgraph.py} berechnet für jede Spalte von $Z$ eine Zeilensignatur und meldet \glqq $A$ ist in $B$ enthalten\grqq, wenn in einem zyklischen Fenster von $B$ mindestens zwei aufeinanderfolgende Signaturen mit denen von $A$ übereinstimmen (längste gemeinsame zusammenhängende Teilfolge der Länge mindestens $2$). Sie vergleicht Spalten also auf \emph{Gleichheit} und nicht auf Teilmengenbeziehung. Daraus folgen zwei Fehlerarten:
+	\begin{enumerate}[label=(\alph*)]
+		\item Ein enthaltener Graph wird übersehen. Für
+		$A = \begin{pmatrix}0&0&0\\0&0&1\\0&1&0\end{pmatrix} \le B = \begin{pmatrix}0&1&1\\1&0&1\\0&1&0\end{pmatrix}$
+		gilt $Z_A \le Z_B$, der Algorithmus entscheidet aber \texttt{keep\_both}.
+		\item Ein nicht enthaltener Graph wird als enthalten gemeldet. Für
+		$A = \begin{pmatrix}0&0&0\\1&0&1\\0&0&0\end{pmatrix}$ und $B = \begin{pmatrix}0&0&0\\1&0&0\\0&0&0\end{pmatrix}$
+		hat $A$ die Kante $(1,2)$, die $B$ fehlt; die Signaturfolgen $(2,0,2)$ und $(2,0,0)$ haben aber die gemeinsame Teilfolge $(2,0)$, und der Algorithmus entscheidet \texttt{equal\_keep\_A}, also \glqq gleich\grqq.
+	\end{enumerate}
+	An je $3000$ zufälligen Paaren (drei bis sechs Knoten, Kantendichte $0{,}4$, festes Startelement) wurde $A \subseteq B$ in $1884$ Fällen erkannt und in $1116$ ($37{,}2\,\%$) übersehen; bei unabhängigen Paaren meldete der Algorithmus in $262$ Fällen ($8{,}7\,\%$) fälschlich Enthaltensein (\texttt{pruefe-erweiterungen.py}). Die Zahlen gelten für die vorliegende Datei; sie beschreiben nicht den Algorithmus, wie er beabsichtigt war.
+\end{bemerkung}
+
+Für Firewall-Richtlinien hat das Folgen: Wer aufgrund einer falschen Meldung \glqq enthalten\grqq{} die vermeintlich allgemeinere Richtlinie behält, ändert die Menge der erlaubten Zugriffe. Deshalb ist in \code{policy.py} die exakte Prüfung maßgeblich. Sie umfasst (i) den Vergleich der Paarmengen nach Gruppennamen (Lemma~\ref{lem:richtlinie}) und (ii) die exakte Entsprechung der Rotationssuche: $Z_A$ ist \emph{zyklisch} in $Z_B$ enthalten ab Position $s$, wenn $Z_A \le Z_B[\pi_s,\pi_s]$ für die Indizes $\pi_s = (s, s+1, \dots, s+n_A-1) \bmod n_B$ gilt. Das kostet $O(n_B\,n_A^2)$ und ist \code{rotation_containment}. \code{compare_policies} gibt beides zusammen mit der Rohentscheidung des Subgraph Algorithmus zurück und kennzeichnet in \code{subgraph_agrees}, ob die Heuristik mit der exakten Prüfung übereinstimmt; die Empfehlung \glqq behalte die allgemeinere\grqq{} (\code{keep}) folgt nur aus der exakten Prüfung. Der Aufruf \texttt{subnetplan a.yaml --compare b.yaml} gibt den Bericht auf der Fehlerausgabe aus.
 
 \subsubsection{Integration und Ausgabeformate}
 
@@ -1474,14 +1636,14 @@ Bei übereinstimmender Beschriftung ist der Vergleich ein einfacher Vergleich de
 	\item \textbf{IPAM:} Import in NetBox oder phpIPAM; Export als Infrastruktur-Code (Terraform, Ansible).
 	\item \textbf{Switch-Konfiguration:} VLAN-Datenbank und Schnittstellen nach IEEE~802.1Q \cite{ieee8021q}.
 	\item \textbf{Weitere Eingabeformate:} JSON-Schema für Editor-Unterstützung, Import aus Tabellenkalkulation, grafische Oberfläche und Web-Dienst.
-	\item \textbf{Warnungen:} Basisnetz nicht aus privaten Bereichen \cite{rfc1918}, Überschneidung mit VPN-Netzen, Auslastung über einem Schwellwert.
+	\item \textbf{Warnungen} (umgesetzt, \texttt{--warnings}, \texttt{--vpn-network}, \texttt{--warn-threshold}): Basisnetz nicht aus privaten Bereichen \cite{rfc1918}, Überschneidung mit VPN-Netzen, Auslastung über einem Schwellwert, bei Cisco fehlender Rückverkehr.
 \end{itemize}
 
 \subsubsection{Qualitätssicherung und formale Verifikation}
 
 \begin{itemize}
-	\item \textbf{Eigenschaftsbasierte Tests} (zum Beispiel mit der Bibliothek Hypothesis): Die Sätze~\ref{satz:korrekt}, \ref{satz:luecke}, \ref{satz:frei} und \ref{satz:firewall} sind genau die Eigenschaften, die der Zufallstest in Abschnitt~\ref{sec:tests} prüft; sie gehören als dauerhafte Tests ins Projekt.
-	\item \textbf{Mutationstests:} Zeigen, ob die $127$ Tests Änderungen des Codes tatsächlich bemerken; $100\,\%$ Abdeckung ist dafür nur eine notwendige Bedingung.
+	\item \textbf{Eigenschaftsbasierte Tests} (umgesetzt, ohne zusätzliche Bibliothek): Die Sätze~\ref{satz:korrekt}, \ref{satz:luecke}, \ref{satz:frei} und \ref{satz:firewall} sowie die der Erweiterungen sind als seeded Zufallstests in \texttt{tests/test\_properties.py} dauerhaft im Projekt; dazu kommen die Skripte \texttt{pruefe-saetze.py} und \texttt{pruefe-erweiterungen.py}. Die Bibliothek Hypothesis wäre eine mögliche Ergänzung, weil sie Gegenbeispiele automatisch verkleinert.
+	\item \textbf{Mutationstests:} Zeigen, ob die $247$ Tests Änderungen des Codes tatsächlich bemerken; $100\,\%$ Abdeckung ist dafür nur eine notwendige Bedingung.
 	\item \textbf{SMT-Verifikation:} Die Invarianten (K1) bis (K3) lassen sich für beschränktes $n$ als Bitvektor-Probleme in einem SMT-Löser formulieren und vollständig beweisen.
 	\item \textbf{Maschinengeprüfter Beweis:} Der Induktionsbeweis von Satz~\ref{satz:luecke} ist kurz und eignet sich für einen Beweisassistenten (Lean, Isabelle, Coq).
 	\item \textbf{Differenztests} gegen andere Werkzeuge (\texttt{ipcalc}, \texttt{sipcalc}, \texttt{netaddr}) und Fuzzing des YAML-Parsers.
@@ -1500,31 +1662,37 @@ Bei übereinstimmender Beschriftung ist der Vergleich ein einfacher Vergleich de
 
 \begin{center}
 \small
-\begin{tabularx}{\textwidth}{Xlll}
+\begin{tabularx}{\textwidth}{Xllll}
 \toprule
-Vorschlag & Aufwand & Nutzen & Begründung \\
+Vorschlag & Aufwand & Nutzen & Begründung & Stand \\
 \midrule
-Bereinigung \texttt{access}, Warnungen & gering & Fehler früh erkennen & Satz~\ref{satz:dedup} \\
-Validierung $O(n)$, Cisco $O(n+a)$ & gering & Skalierung & Satz~\ref{satz:optimal} \\
-Cisco-Rückverkehr & mittel & korrekte Funktion & Satz~\ref{satz:cisco} \\
-Exakte Arithmetik & gering & Robustheit & Lemma~\ref{lem:float} \\
-IPv6-\texttt{/64}, Mindestgrößen & gering & Betriebspraxis & Satz~\ref{satz:robust} \\
-Regelgruppierung & mittel & kürzere Regeln & Satz~\ref{satz:gruppe} \\
-Bestandsnetze, Pools & mittel & Praxistauglichkeit & Satz~\ref{satz:bestand} \\
-Inkrementelle Planung & mittel & keine Umnummerierung & Korollar~\ref{kor:erweiterung} \\
-Hierarchie & mittel & Routen-Aggregation & Satz~\ref{satz:hier} \\
-Formale Verifikation & hoch & Gewissheit & Abschnitt~\ref{sec:tests} \\
+Bereinigung \texttt{access}, Warnungen & gering & Fehler früh erkennen & Satz~\ref{satz:dedup} & umgesetzt \\
+Validierung $O(n)$, Cisco $O(n+a)$ & gering & Skalierung & Satz~\ref{satz:optimal} & umgesetzt \\
+Cisco-Rückverkehr & mittel & korrekte Funktion & Satz~\ref{satz:cisco} & umgesetzt \\
+Exakte Arithmetik & gering & Robustheit & Lemma~\ref{lem:exakt} & umgesetzt \\
+IPv6-\texttt{/64}, Mindestgrößen & gering & Betriebspraxis & Satz~\ref{satz:robust} & umgesetzt \\
+Regelgruppierung & mittel & kürzere Regeln & Satz~\ref{satz:gruppe} & umgesetzt \\
+Bestandsnetze, Pools & mittel & Praxistauglichkeit & Satz~\ref{satz:bestand} & umgesetzt \\
+Inkrementelle Planung & mittel & keine Umnummerierung & Korollar~\ref{kor:erweiterung} & umgesetzt \\
+Hierarchie & mittel & Routen-Aggregation & Satz~\ref{satz:hier} & umgesetzt \\
+Eigenschaftsbasierte Tests & mittel & Gewissheit & Abschnitt~\ref{sec:tests} & umgesetzt \\
+Ports, weitere Plattformen & hoch & Funktionsumfang & --- & offen \\
+Formale Verifikation (SMT, Beweisassistent) & hoch & Gewissheit & Satz~\ref{satz:luecke} & offen \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 \subsection{Implementierungshinweis}
 
-Der Subgraph Algorithmus ist verfügbar unter \url{https://github.com/naphz86/subgraph} \cite{epp26}. Der Code von \texttt{sbntgg} befindet sich im Projekt \texttt{sbntgg} (Paket \texttt{subnetplan}, Version 1.0.0, Python 3.11 oder neuer, Abhängigkeit PyYAML). Installation und Aufruf:
+Der Subgraph Algorithmus ist verfügbar unter \url{https://github.com/naphz86/subgraph} \cite{epp26}. Der Code von \texttt{sbntgg} befindet sich im Projekt \texttt{sbntgg} (Paket \texttt{subnetplan}, Version 1.1.0, Python 3.11 oder neuer, Abhängigkeiten PyYAML, NumPy und das Paket \texttt{subgraph}, das \texttt{pip} über die \texttt{pyproject.toml} installiert). Installation und Aufruf:
 \begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize]
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-subnetplan examples/config.example.yaml
+subnetplan examples/config.example.yaml --verify --roundtrip --warnings
+subnetplan examples/config.example.yaml --firewall nftables --group-rules
+subnetplan examples/config.example.yaml --format json -o plan.json
+subnetplan neue.yaml --extend plan.json
+subnetplan a.yaml --compare b.yaml
 pytest
 \end{lstlisting}
 
