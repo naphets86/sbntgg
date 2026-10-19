@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "subnetplan"
-version = "2.0.0"
-description = "Automatisches Subnetting für Mitarbeitergruppen mit Firewall-Regeln (iptables, nftables, Cisco-ACL)"
+version = "3.0.0"
+description = "Automatisches Subnetting für Mitarbeitergruppen mit Firewall-Regeln (iptables, nftables, Cisco-ACL) und JSON-API"
 authors = [
     { name = "Stephan Epp" }
 ]
@@ -13,6 +13,8 @@ requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.24",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
     # Subgraph Algorithmus (Richtlinienvergleich, src/policy.py): wird installiert, nicht kopiert.
     "subgraph @ git+https://github.com/naphz86/subgraph.git",
 ]
@@ -22,16 +24,18 @@ dev = [
     "pytest",
     "pytest-cov",
     "coverage",
+    "httpx2",
 ]
 
 [project.scripts]
 subnetplan = "subnetplan.cli:main"
+subnetplan-api = "web.api:run"
 
 [tool.setuptools]
 # Das Verzeichnis `src` ist selbst das Paket. Ohne diese Abbildung verteilt setuptools
 # die Module (planner.py, config.py, ...) als lose Top-Level-Module in site-packages.
-packages = ["subnetplan"]
-package-dir = { subnetplan = "src" }
+packages = ["subnetplan", "web"]
+package-dir = { subnetplan = "src", web = "web" }
 
 [tool.coverage.run]
 source = ["src"]

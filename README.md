@@ -2,8 +2,9 @@
 
 sbntgg teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf (inklusive VLAN-IDs, Gateways und Wachstumsreserve) und erzeugt aus der Zugriffsmatrix optional Firewall-Regeln für iptables, nftables und Cisco-ACLs.
 
+[![Version](https://img.shields.io/badge/Version-3.0.0-blue)](pyproject.toml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-246%20passed-4c1)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-562%20passed-4c1)](tests/)
 [![Test Coverage](https://img.shields.io/badge/Test%20Coverage-100%25-brightgreen)](doc/coverage/index.html)
 [![scicov](https://img.shields.io/badge/scicov-10-ff69b4)](doc/coverage/index.html)
 
@@ -19,6 +20,8 @@ sbntgg teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in üb
 - [Projektstruktur](#projektstruktur)
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
+- [JSON API](#json-api)
+- [Neue Funktionen](#neue-funktionen)
 - [Experimente](#experimente)
 - [Tests](#tests)
 - [Erwerb](#erwerb)
@@ -57,8 +60,11 @@ Die Konfiguration ist eine YAML- oder JSON-Datei. Ein vollständiges Beispiel mi
 | `allocation_strategy` | `vlsm` oder `fixed` | `vlsm` |
 | `gateway_position` | `first`, `last` oder `none` | `first` |
 | `groups` | Liste der Gruppen | Pflicht |
+| `max_prefix` | längste erlaubte Präfixlänge (Mindestblockgröße), zum Beispiel `64` bei IPv6 | keine Grenze |
+| `pools` | zusätzliche Netze neben `base_network` (gleiche IP-Version) | keine |
+| `existing` | bereits belegte Netze, die im Plan ausgespart werden (gleiche IP-Version) | keine |
 
-Je Gruppe: `name` und `hosts` sind Pflicht, `vlan_id`, `priority` und `access` sind optional. Die Optionen `--base-network`, `--growth-factor`, `--strategy` und `--gateway` überschreiben die Datei.
+Je Gruppe: `name` und `hosts` sind Pflicht, `vlan_id`, `priority` und `access` sind optional. Weitere optionale Gruppenschlüssel sind `overhead` (eigener Adressoverhead), `network` (festes Netz) und `site` (Standort für die zweistufige Planung; entweder für alle Gruppen oder für keine). Die Optionen `--base-network`, `--growth-factor`, `--strategy`, `--gateway` und `--max-prefix` überschreiben die Datei.
 
 Gruppennamen dürfen nur Buchstaben, Ziffern, `_`, `-` und Leerzeichen enthalten, weil sie in Regelkommentaren und ACL-Namen landen.
 
@@ -253,17 +259,21 @@ Cisco-ACLs sind zustandslos, Rückverkehr braucht passende Gegenregeln. Die erze
 | `src/checks.py` | Warnungen (privater Bereich, VPN-Überschneidung, Auslastung) |
 | `src/policy.py` | Richtlinienvergleich, nutzt den Subgraph Algorithmus (Dependency) |
 | `src/cli.py` | Kommandozeile |
+| `src/experiments.py` | reproduzierbare Experimente (`python -m src.experiments`), nicht Teil der Testabdeckung |
+| `src/results/` | Ergebnisse der Experimente als JSON, dazu `summary.json` |
+| `web/api.py` | FastAPI-JSON-API (Version 3.0.0) für Planung und Auswertung |
 | `tests/` | pytest-Tests |
+| `science/` | wissenschaftliche Arbeit „Der Subnetting Algorithmus“ (`sbntgg.tex`, `sbntgg.pdf`) |
 | `examples/` | Beispielkonfiguration `config.example.yaml` (fünf Gruppen), ausführlich beschrieben im Abschnitt [Beispielkonfiguration](#beispielkonfiguration) |
 | `doc/coverage/` | HTML-Bericht der Testabdeckung (wird beim Testlauf erzeugt) |
-| `pyproject.toml` | Projektmetadaten sowie pytest- und Coverage-Konfiguration |
+| `pyproject.toml` | Projektmetadaten (Version 3.0.0) sowie pytest- und Coverage-Konfiguration |
 
 ## Voraussetzungen
 
 - Python 3.11 oder neuer
-- PyYAML, NumPy
+- PyYAML, NumPy, FastAPI und Uvicorn
 - Das Paket `subgraph` (Subgraph Algorithmus, https://github.com/naphets86/subgraph); wird über die `pyproject.toml` per `pip install` eingebunden und nicht kopiert
-- Für Tests: `pytest` und `pytest-cov`
+- Für Tests: `pytest`, `pytest-cov` und `httpx` (wird vom FastAPI-`TestClient` der API-Tests benötigt)
 
 ## Installation
 
@@ -272,6 +282,48 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
+
+## JSON API
+
+Die API (Version 3.0.0, identisch mit der Projektversion in der `pyproject.toml`) verarbeitet Konfigurationen als JSON und stellt Planberechnung, Erweiterung, Firewall-Regeln,
+Verifikation, Statistiken, Warnungen, Roundtrip-Prüfung, Richtlinienvergleich und Zugriffsurteile bereit.
+Sie ist zustandslos: Jede Anfrage enthält ihre Konfiguration, serverseitig wird nichts gespeichert.
+Nach der Installation lässt sie sich mit Uvicorn starten:
+
+```bash
+uvicorn web.api:app --reload
+```
+
+Alternativ startet `subnetplan-api` den Server ohne Reload. Standardmäßig lauscht er auf `127.0.0.1:8000`;
+Host und Port können über `SUBNETPLAN_API_HOST` und `SUBNETPLAN_API_PORT` gesetzt werden. Die interaktive
+OpenAPI-Dokumentation liegt unter `http://127.0.0.1:8000/docs` und zeigt dort ebenfalls die API-Version 3.0.0.
+
+Planberechnung:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/plans \
+  -H "Content-Type: application/json" \
+  -d '{"config":{"base_network":"10.20.0.0/16","groups":[{"name":"Server","hosts":40}]}}'
+```
+
+### Endpunkte
+
+| Methode und Pfad | Zweck |
+| --- | --- |
+| `GET /api/v1/health` | Prozessstatus (`{"status":"ok"}`), keine Prüfung externer Abhängigkeiten |
+| `GET /api/v1/options` | zulässige Strategien, Gateway-Positionen, Formate, Firewalls und Cisco-Rückverkehrsmodi |
+| `POST /api/v1/plans` | Subnetzplan berechnen |
+| `POST /api/v1/plans/extend` | bestehenden Plan erweitern, ohne vorhandene Netze zu verschieben |
+| `POST /api/v1/plans/verify` | Plan gegen die implementierten Planeigenschaften prüfen |
+| `POST /api/v1/plans/stats` | Blockauslastung, Bedarf und internen Verschnitt berechnen |
+| `POST /api/v1/plans/warnings` | Hinweise zu Adressbereich, VPN-Überschneidung, Auslastung und Cisco-Besonderheiten |
+| `POST /api/v1/plans/firewall` | Regeltext für `iptables`, `nftables` oder `cisco` erzeugen |
+| `POST /api/v1/plans/roundtrip` | erzeugte Regeln zurücklesen und mit der Zugriffsmatrix vergleichen |
+| `POST /api/v1/plans/compare` | zwei Zugriffspolitiken exakt und mit dem Subgraph Algorithmus vergleichen |
+| `POST /api/v1/plans/verdict` | Urteil `accept` oder `drop` für einen Paketfluss (Quell- und Ziel-IP) |
+
+Die `POST`-Endpunkte erwarten `config` (dieselben Schlüssel wie in der Konfigurationsdatei) und optional `overrides`; `compare` nimmt stattdessen `config_a`, `config_b`, `overrides_a` und `overrides_b`, `extend` zusätzlich den bisherigen `plan`. Fachliche Validierungsfehler
+werden mit HTTP 422 als JSON unter `error.type` und `error.message` zurückgegeben; ungültige Feldtypen weist FastAPI ebenfalls mit 422 ab (Schema `detail`). `compare` antwortet mit HTTP 503, wenn der Subgraph Algorithmus nicht verfügbar ist.
 
 ## Neue Funktionen
 
@@ -284,7 +336,7 @@ pip install -e ".[dev]"
 | Regelgruppierung (nftables-Mengen, ipset, Cisco-Objektgruppen) | `--group-rules` |
 | Rückverkehr bei Cisco, ASCII-Namen, Logging, ICMPv6 | `--cisco-return established`, `--ascii-names`, `--log-drops`, `--icmpv6 TYPEN` |
 | iptables-Skript wiederholbar ausführen | Standard, abschaltbar mit `--no-idempotent` |
-| Prüfungen und Berichte (auf stderr) | `--verify`, `--roundtrip`, `--warnings`, `--stats`, `--compare ANDERE.yaml` |
+| Prüfungen und Berichte (auf stderr) | `--verify`, `--roundtrip`, `--warnings` (mit `--warn-threshold` und `--vpn-network`), `--stats`, `--compare ANDERE.yaml` |
 
 `--compare` vergleicht die Zugriffsrichtlinien exakt und zusätzlich mit dem Subgraph Algorithmus. Dessen Ergebnis ist eine Heuristik und wird gesondert ausgewiesen; maßgeblich ist die exakte Prüfung.
 
@@ -318,7 +370,7 @@ Das Laufzeit- und das eigenständige IPv6-Skalierungsexperiment wurden **nicht**
 pytest
 ```
 
-Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`.
+Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`. Die Tests umfassen auch die JSON API (`tests/test_web_api.py`, mit dem FastAPI-`TestClient`). Ausgenommen von der Messung sind `tests/`, `doc/` und `src/experiments.py`.
 
 ## Erwerb
 
