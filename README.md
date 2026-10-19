@@ -374,7 +374,7 @@ Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und
 
 ## Erwerb
 
-Der Preis für diese Software beträgt 1.456.789,00 EUR
+Der Preis für diese Software beträgt 11.456.789,00 EUR
 
 ### Zahlungsinformationen
 
