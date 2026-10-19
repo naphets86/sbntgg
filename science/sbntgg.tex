@@ -95,6 +95,7 @@ Für die Firewall-Regeln wird ein Default-Deny-Satz bewiesen.
 Die Laufzeit des Kerns beträgt $\Theta(n\log n + a)$ im Vergleichsmodell und ist damit optimal.
 Die zunächst nur vorgeschlagenen Erweiterungen sind in Version~1.1.0 umgesetzt: Planung mit Bestandsnetzen und mehreren Pools (exakte Packbarkeitsbedingung), Mindestgrößen und eigener Overhead, zweistufige Planung mit Standortblöcken, inkrementelle Erweiterung und Verdopplung an Ort und Stelle, Regelgruppierung, Rückverkehr bei Cisco-ACLs sowie eine Rückübersetzung der erzeugten Regeln als Korrektheitstest.
 Der Richtlinienvergleich über den Subgraph Algorithmus wird durch eine exakte Prüfung abgesichert, weil dessen Signaturvergleich, wie die Arbeit zeigt, nur eine Heuristik ist.
+Ein eigenes Kapitel entwirft die noch nicht umgesetzte Erweiterung um Protokolle und Ports formal: Portmengen haben eine eindeutige Intervall-Normalform, jedes Port-Intervall zerfällt in höchstens $30$ ausgerichtete Portblöcke (scharf), und Überlappung, Lücken und Vollständigkeit einer Freigabeliste sind exakt prüfbar.
 Ein ausführlich erklärtes Konfigurationsbeispiel, eine Einführung in das Subnetting für Schülerinnen und Schüler sowie ein umfangreicher Ausblick ergänzen die Arbeit.
 \end{abstract}
 
@@ -128,7 +129,7 @@ Eine besondere Verbindung besteht zum Subgraph Algorithmus: Die Zugriffsmatrix i
 
 \section{Aufbau der Arbeit}
 
-Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 wertet die reproduzierbaren Experimente aus. Abschnitt~7 fasst die Arbeit zusammen, beschreibt die umgesetzten Erweiterungen samt Beweisen und Prüfergebnissen und nennt die noch offenen Punkte.
+Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 wertet die reproduzierbaren Experimente aus. Abschnitt~7 entwirft die Erweiterung um Protokolle und Ports samt Beweisen. Abschnitt~8 fasst die Arbeit zusammen, beschreibt die umgesetzten Erweiterungen samt Beweisen und Prüfergebnissen und nennt die noch offenen Punkte.
 
 \chapter{Grundlagen}
 
@@ -266,10 +267,12 @@ Daraus folgen zwei Regeln, die der Algorithmus befolgt:
 \paragraph{Kontrollfragen.} (1) Wie viele Adressen hat ein \texttt{/29}? ($2^3 = 8$.) (2) Wie viele davon sind für Geräte nutzbar, wenn es Netzadresse, Broadcast und Gateway gibt? ($8-3=5$.) (3) Welches Präfix braucht man für 50 Geräte ohne Reserve? ($50+3 = 53 \le 64 = 2^6$, also \texttt{/26}.)
 
 \section{Formale Definitionen}
+\label{sec:formal}
 
 Im Folgenden bezeichnet $w \in \{32, 128\}$ die Adressbreite (IPv4 beziehungsweise IPv6). Adressen werden als ganze Zahlen identifiziert.
 
 \begin{definition}[Adressraum und Block]
+\label{def:block}
 	Der Adressraum ist $\mathcal{A}_w = \{0, 1, \ldots, 2^w - 1\}$. Für eine Präfixlänge $p \in \{0,\ldots,w\}$ und eine Adresse $a \in \mathcal{A}_w$ mit $2^{w-p} \mid a$ heißt
 	\[
 	N(a,p) = \{a, a+1, \ldots, a + 2^{w-p} - 1\}
@@ -1476,6 +1479,267 @@ Als Plausibilitätsanker liefert der zusätzlich ausgeführte Beispielaufruf fü
 
 Insgesamt stützen die bestandenen Prüfungen die getesteten Aussagen zu Blockauslastung, exakter Aufrundung, Packbarkeit, Erweiterung, Hierarchie, Verdopplung und Firewall-Semantik. Der Lauf ist gleichwohl nicht vollständig erfolgreich: Zwei geplante Experimente wurden durch eine technische Kapazitätsgrenze des Testaufbaus abgebrochen. Die angemessene Schlussfolgerung lautet daher nicht „alle Experimente bestanden“, sondern: neun Teilversuche erfüllten ihre jeweiligen Kriterien; Laufzeit- und IPv6-Skalierung müssen nach Anpassung der VLAN-Testdaten erneut gemessen werden. Die vollständigen Einzelwerte und Metadaten stehen in den JSON-Dateien unter \texttt{src/results/}.
 
+\chapter{Erweiterung um Protokolle und Ports}
+\label{sec:ports}
+
+Das bisherige Modell entscheidet ausschließlich anhand von Quell- und Zieladresse (Satz~\ref{satz:firewall}): Gibt \code{access} das Paar $(i,j)$ frei, darf die Gruppe $g_i$ jeden Dienst der Gruppe $g_j$ nutzen. Dieses Kapitel verfeinert das Modell so, dass eine Freigabe auf Protokolle und Zielports beschränkt werden kann, und beweist die Eigenschaften der Verfeinerung. Im Ausblick (Abschnitt~\ref{sec:ausblick}) war dieser Punkt als offen geführt.
+
+\paragraph{Stand und Aussagegrenzen.} Das Kapitel ist ein formaler Entwurf. Die Erweiterung ist in \texttt{subnetplan} \emph{nicht} umgesetzt: Es gibt weder eine Konfigurationssyntax noch Tests dafür. Bewiesen werden Aussagen über das mathematische Modell, nicht über ein Programm. Die genannten Zahlenwerte wurden zusätzlich mit einem eigenständigen Skript nachgerechnet, das nicht Teil von \texttt{subnetplan} ist: die Schranke aus Satz~\ref{satz:bereich} exhaustiv für die Adressbreiten $w=2,\ldots,8$ und für $w=16$ an $200000$ Zufallsintervallen (größte beobachtete Blockzahl: $26$), die Sätze~\ref{satz:normalform}, \ref{satz:luecken}, \ref{satz:merge} und \ref{satz:teilmenge} an je mindestens $5000$ Zufallsmengen im Vergleich mit einer Prüfung jedes einzelnen Ports. Diese Rechnungen bestätigen die Beweise an Stichproben und ersetzen sie nicht.
+
+\section{Portraum und Dienste}
+
+Ein Port ist eine 16-Bit-Zahl im Kopf von TCP und UDP. Der Portraum ist damit der Adressraum der Breite $w=16$ aus Abschnitt~\ref{sec:formal}; die Begriffe Block, Ausrichtung und Laminarität (Lemma~\ref{lem:laminar}) gelten unverändert.
+
+\begin{definition}[Portraum, Port-Intervall, Portblock]
+\label{def:portraum}
+	Der \emph{Portraum} ist $\mathcal{P} = \mathcal{A}_{16} = \{0,1,\ldots,65535\}$ und hat $2^{16} = 65536$ Elemente. Für $0 \le l \le r \le 65535$ heißt $[l,r] = \{q \in \mathcal{P} : l \le q \le r\}$ ein \emph{Port-Intervall} der Größe $r-l+1$. Ein \emph{Portblock} ist ein Block $N(a,p)$ im Sinne von Definition~\ref{def:block} mit $w=16$, also eine Menge $\{a,\ldots,a+2^j-1\}$ mit $j = 16-p$, $2^j \mid a$ und $0 \le a \le 65535$.
+\end{definition}
+
+Die Bedingung $2^j \mid a$ hängt nicht von $w$ ab. Ein Block von $\mathcal{A}_k$ mit $k<16$ ist deshalb auch ein Block von $\mathcal{A}_{16}$; im Folgenden wird das für beliebige Breiten stillschweigend benutzt.
+
+\begin{definition}[Dienstraum]
+\label{def:dienst}
+	Sei $\Pi = \{\texttt{tcp},\texttt{udp}\}$ die Menge der Protokolle mit Ports und $\Omega$ eine endliche Menge portloser Protokolle (zum Beispiel ICMP und ICMPv6). Der \emph{Dienstraum} ist die disjunkte Vereinigung $\mathcal{D} = (\Pi \times \mathcal{P}) \cup \Omega$. Ein Element $(\pi,q) \in \Pi\times\mathcal{P}$ bezeichnet das Protokoll $\pi$ mit dem \emph{Zielport} $q$. Für $\Sigma \subseteq \mathcal{D}$ und $\pi\in\Pi$ sei $\Sigma^\pi = \{q \in \mathcal{P} : (\pi,q)\in\Sigma\}$.
+\end{definition}
+
+\begin{bemerkung}[Port 0]
+	Port $0$ ist reserviert und wird im Betrieb nicht als Dienstport verwendet. Das Modell lässt ihn zu; eine Implementierung dürfte ihn ablehnen. Alle Sätze dieses Kapitels gelten für beliebige Teilmengen von $\mathcal{P}$, also auch für Teilmengen von $\{1,\ldots,65535\}$.
+\end{bemerkung}
+
+\section{Portmengen als Intervalle}
+
+Eine Freigabe wird je Protokoll durch eine Teilmenge $S\subseteq\mathcal{P}$ beschrieben. Damit eine solche Menge eindeutig und kurz notiert werden kann, wird sie als Liste von Intervallen geschrieben.
+
+\begin{definition}[Normalisierte Intervallliste]
+\label{def:normal}
+	Eine Liste $(I_1,\ldots,I_m)$ von Port-Intervallen $I_k = [l_k,r_k]$ heißt \emph{normalisiert}, wenn $l_{k+1} \ge r_k + 2$ für alle $1 \le k < m$ gilt (geordnet, disjunkt und nicht benachbart). Sie \emph{stellt} $S$ \emph{dar}, wenn $S = \bigcup_k I_k$ ist. Die leere Liste stellt $\emptyset$ dar.
+\end{definition}
+
+Ein \emph{Lauf} von $S$ ist eine maximale Teilmenge von $S$ aufeinanderfolgender Zahlen, also ein Port-Intervall $[l,r]\subseteq S$ mit $l = 0$ oder $l-1\notin S$ und $r = 65535$ oder $r+1 \notin S$.
+
+\begin{satz}[Normalform]
+\label{satz:normalform}
+	Jede Menge $S \subseteq \mathcal{P}$ wird von genau einer normalisierten Intervallliste dargestellt, nämlich der Liste ihrer Läufe in aufsteigender Reihenfolge. Ihre Länge $m(S)$ erfüllt $m(S) \le 2^{15} = 32768$, und die Schranke wird angenommen.
+\end{satz}
+
+\begin{proof}
+	\emph{Existenz.} Für $x \in S$ sei $l(x) = \min\{y : [y,x]\subseteq S\}$ und $r(x) = \max\{y: [x,y]\subseteq S\}$; beide Mengen sind nichtleer (sie enthalten $x$) und endlich. Dann ist $L(x) = [l(x),r(x)] \subseteq S$. Gälte $l(x)>0$ und $l(x)-1\in S$, so wäre $[l(x)-1,x]\subseteq S$ im Widerspruch zur Minimalität; analog gilt $r(x)=65535$ oder $r(x)+1\notin S$. Also ist $L(x)$ ein Lauf. Jedes $x\in S$ liegt in $L(x)$. Zwei Läufe, die ein Element $z$ gemeinsam haben, sind gleich: Ihre Vereinigung besteht aus aufeinanderfolgenden Zahlen und liegt in $S$, also folgt die Gleichheit aus der Maximalität beider. Verschiedene Läufe sind daher disjunkt. Seien $L = [l,r]$ und $L' = [l',r']$ verschiedene Läufe mit $r < l'$. Es gilt $r+1\notin S$, aber $l' \in S$; also ist $l' \neq r+1$ und somit $l' \ge r+2$. Die Läufe in aufsteigender Reihenfolge bilden also eine normalisierte Liste, die $S$ darstellt.
+
+	\emph{Eindeutigkeit.} Sei $(I_1,\ldots,I_m)$ eine beliebige normalisierte Liste mit Vereinigung $S$. Aus $l_{k+1}\ge r_k+2 \ge l_k+2$ folgen $l_1<l_2<\cdots$ und $r_1<r_2<\cdots$. Wir zeigen, dass jedes $I_k$ ein Lauf von $S$ ist. Es gilt $I_k \subseteq S$. Ist $r_k < 65535$, so ist $r_k+1\notin S$: Es liegt nicht in $I_k$; für $t<k$ ist $r_t < r_k$; für $t>k$ ist $l_t \ge l_{k+1} \ge r_k+2$. Ebenso ist für $l_k>0$ die Zahl $l_k-1\notin S$: Für $t<k$ ist $r_t \le r_{k-1} \le l_k-2$, für $t>k$ ist $l_t\ge l_k+2$. Also ist $I_k$ ein Lauf. Jeder Lauf $L$ enthält ein Element $x\in S$, das in einem $I_k$ liegt; da $I_k$ und $L$ Läufe mit gemeinsamem Element sind, folgt $L=I_k$. Die Liste besteht somit genau aus den Läufen von $S$, in aufsteigender Reihenfolge. Das ist die behauptete Eindeutigkeit.
+
+	\emph{Länge.} Aus $l_{k+1}\ge l_k+2$ folgt $l_m \ge l_1 + 2(m-1) \ge 2(m-1)$. Wegen $l_m\le 65535$ ist $2(m-1)\le 65535$, also $m-1 \le 32767$ und $m \le 32768$. Für die geraden Ports $S=\{0,2,4,\ldots,65534\}$ ist $(\,[0,0],[2,2],\ldots,[65534,65534]\,)$ normalisiert mit $32768$ Intervallen.
+\end{proof}
+
+\section{Zerlegung in Portblöcke}
+
+Manche Regelwerke kennen keinen Bereichsoperator und vergleichen nur Wert-Maske-Paare. Ein Port-Intervall muss dort in Portblöcke zerlegt werden, genau wie ein Adressbereich in CIDR-Blöcke. Die folgenden Aussagen bestimmen, wie viele Blöcke dafür nötig sind. Dabei sei $\popcnt(n)$ die Zahl der Einsen in der Binärdarstellung von $n$.
+
+\begin{lemma}[Untere Schranke]
+\label{lem:mindest}
+	Sei $n\ge 1$ und $n = 2^{j_1}+\cdots+2^{j_c}$ mit natürlichen Zahlen $j_1,\ldots,j_c$ (nicht notwendig verschieden). Dann ist $c\ge\popcnt(n)$. Insbesondere braucht jede Zerlegung einer Menge der Größe $n$ in disjunkte Blöcke mindestens $\popcnt(n)$ Blöcke.
+\end{lemma}
+
+\begin{proof}
+	Induktion über $c$. Sind die $j_u$ paarweise verschieden, so ist die Summe die Binärdarstellung von $n$, und es gilt $c=\popcnt(n)$. Andernfalls gibt es $u\neq v$ mit $j_u=j_v$; ersetzt man beide Summanden durch $2^{j_u+1}$, bleibt die Summe $n$ und die Anzahl sinkt auf $c-1$. Nach Induktionsvoraussetzung ist $c-1\ge\popcnt(n)$, also erst recht $c \ge \popcnt(n)$. Die Aussage über Blöcke folgt, weil die Blockgrößen Zweierpotenzen sind und sich bei disjunkter Zerlegung zu $n$ addieren.
+\end{proof}
+
+\begin{lemma}[Präfix und Suffix]
+\label{lem:praefix}
+	Sei $k\ge 1$ und $1\le m\le 2^k$. Dann ist $[0,m-1]$ die disjunkte Vereinigung von $\popcnt(m)$ Blöcken von $\mathcal{A}_k$, und ebenso $[2^k-m,\,2^k-1]$.
+\end{lemma}
+
+\begin{proof}
+	Sei $m = 2^{j_1}+\cdots+2^{j_t}$ mit $j_1>\cdots>j_t$ und $t=\popcnt(m)$. Mit $a_s = 2^{j_1}+\cdots+2^{j_{s-1}}$ (also $a_1=0$) sei $B_s=\{a_s,\ldots,a_s+2^{j_s}-1\}$. Jeder Summand von $a_s$ ist ein Vielfaches von $2^{j_s}$, weil $j_u>j_s$ für $u<s$; also $2^{j_s}\mid a_s$ und $B_s$ ist ausgerichtet. Es gilt $a_{s+1}=a_s+2^{j_s}$, die Blöcke schließen also lückenlos aneinander an, und ihre Vereinigung ist $[0,m-1]\subseteq\mathcal{A}_k$.
+
+	Für das Suffix betrachte die Spiegelung $\rho(x)=2^k-1-x$. Ein Block $\{a,\ldots,a+2^j-1\}\subseteq\mathcal{A}_k$ hat $j\le k$ und wird auf $\{2^k-a-2^j,\ldots,2^k-1-a\}$ abgebildet. Der Anfang $2^k-a-2^j$ ist durch $2^j$ teilbar, da $2^j\mid 2^k$ und $2^j\mid a$. Also bildet $\rho$ Blöcke auf Blöcke ab, und $\rho([0,m-1]) = [2^k-m,2^k-1]$.
+\end{proof}
+
+\begin{satz}[Zerlegung eines Intervalls]
+\label{satz:bereich}
+	Für jedes $w\ge2$ lässt sich jedes Intervall $[l,r]\subseteq\mathcal{A}_w$ in höchstens $2w-2$ Blöcke zerlegen, und das Intervall $[1,2^w-2]$ braucht mindestens $2w-2$. Für den Portraum ($w=16$) gilt: Jedes Port-Intervall ist die disjunkte Vereinigung von höchstens $30$ Portblöcken, und $[1,65534]$ braucht genau $30$.
+\end{satz}
+
+\begin{proof}
+	\emph{Obere Schranke} durch Induktion über $w$. Sei $H=2^{w-1}$.
+
+	\emph{Fall A: $r<H$.} Dann ist $[l,r]\subseteq\mathcal{A}_{w-1}$. Für $w=2$ ist $\mathcal{A}_1=\{0,1\}$, und jedes Intervall darin ist ein Block ($\{0\}$, $\{1\}$, $\{0,1\}$), also genügt $1\le 2w-2$ Block. Für $w>2$ liefert die Induktionsvoraussetzung höchstens $2(w-1)-2\le 2w-2$ Blöcke.
+
+	\emph{Fall B: $l\ge H$.} Dann ist $[l-H,r-H]\subseteq\mathcal{A}_{w-1}$. Die Verschiebung um $H$ erhält die Ausrichtung, denn $H$ ist durch jedes $2^j$ mit $j\le w-1$ teilbar. Die Anzahl ist wie in Fall A beschränkt.
+
+	\emph{Fall C: $l<H\le r$.} Das Intervall zerfällt in $[l,H-1]$ und $[H,r]$. Sei $m_1=H-l$; es gilt $1\le m_1\le H$, und $[l,H-1]=[H-m_1,H-1]$ ist ein Suffix von $\mathcal{A}_{w-1}$. Nach Lemma~\ref{lem:praefix} genügen dafür $\popcnt(m_1)$ Blöcke. Sei $m_2=r-H+1$; es gilt $1\le m_2\le H$, und $[H,r]$ ist die um $H$ verschobene Menge $[0,m_2-1]$, braucht also höchstens $\popcnt(m_2)$ Blöcke. Für $1\le m\le H$ ist $\popcnt(m)\le w-1$: Bei $m=H=2^{w-1}$ ist $\popcnt(m)=1\le w-1$ wegen $w\ge2$, sonst hat $m<2^{w-1}$ höchstens $w-1$ Binärstellen. Insgesamt sind es höchstens $2(w-1)=2w-2$ Blöcke.
+
+	\emph{Untere Schranke.} Sei $I=[1,2^w-2]$ und $H=2^{w-1}$. Kein Block $\{a,\ldots,a+2^j-1\}\subseteq\mathcal{A}_w$ enthält sowohl $H-1$ als auch $H$, außer dem ganzen Raum ($j=w$): Für $j\le w-1$ gilt $2^j\mid H$; das größte Vielfache von $2^j$ unterhalb von $H$ ist $H-2^j$, aus $a\le H-1$ folgt also $a\le H-2^j$ und $a+2^j-1\le H-1<H$. Der ganze Raum enthält $0\notin I$ und scheidet aus. Jeder Block einer Zerlegung von $I$ liegt daher in $[1,H-1]$ oder in $[H,2^w-2]$. Beide Teile haben die Größe $2^{w-1}-1$ mit $\popcnt(2^{w-1}-1)=w-1$. Nach Lemma~\ref{lem:mindest} braucht jeder Teil mindestens $w-1$ Blöcke, zusammen $2w-2$. Mit der oberen Schranke folgt Gleichheit. Für $w=16$ ergibt sich $30$.
+\end{proof}
+
+\begin{beispiel}[Typische Portbereiche]
+\label{bsp:portbloecke}
+	Alle Zahlen sind Portblöcke $N(a,p)$, angegeben als $a/p$ (Größe $2^{16-p}$). Dass die Blockzahl jeweils minimal ist, folgt aus Lemma~\ref{lem:mindest}, weil sie mit $\popcnt$ der Intervallgröße übereinstimmt.
+	\begin{center}
+	\small
+	\begin{tabularx}{\textwidth}{lrrX}
+	\toprule
+	Intervall & Größe & Blöcke & Zerlegung $a/p$ \\
+	\midrule
+	$[0,1023]$ (\glqq well-known\grqq{}) & $1024$ & $1$ & $0/6$ \\
+	$[1024,65535]$ (\code{tcp/1024-65535}) & $64512$ & $6$ & $1024/6$, $2048/5$, $4096/4$, $8192/3$, $16384/2$, $32768/1$ \\
+	$[49152,65535]$ (dynamisch nach IANA) & $16384$ & $1$ & $49152/2$ \\
+	$[32768,60999]$ (Standard unter Linux) & $28232$ & $7$ & $32768/2$, $49152/3$, $57344/5$, $59392/6$, $60416/7$, $60928/10$, $60992/13$ \\
+	$[8000,8099]$ & $100$ & $3$ & $8000/10$, $8064/11$, $8096/14$ \\
+	\bottomrule
+	\end{tabularx}
+	\end{center}
+	Die Größen $64512=2^{16}-2^{10}$, $16384=2^{14}$, $28232=2^{14}+2^{13}+2^{11}+2^{10}+2^9+2^6+2^3$ und $100=2^6+2^5+2^2$ haben $6$, $1$, $7$ beziehungsweise $3$ Einsen. Der Bereich $[1,65534]$ aus Satz~\ref{satz:bereich} ist der ungünstigste Fall mit $30$ Blöcken. Der Standardbereich der dynamischen Quellports unter Linux ist der Dateiinhalt von \texttt{/proc/sys/net/ipv4/ip\_local\_port\_range} (\texttt{32768 60999}); die IANA-Empfehlung ist $49152$ bis $65535$.
+\end{beispiel}
+
+\section{Erweitertes Zugriffsmodell und Urteil}
+
+\begin{definition}[Dienstfreigabe]
+\label{def:freigabe}
+	Jeder Eintrag in $\text{acc}(g_i)$, der $g_j$ nennt, trägt eine Dienstmenge $\sigma\subseteq\mathcal{D}$; ohne Angabe gilt $\sigma=\mathcal{D}$ (alle Dienste, das bisherige Verhalten). Für $i\ne j$ sei $\Sigma_{ij}\subseteq\mathcal{D}$ die Vereinigung der Dienstmengen aller Einträge von $\text{acc}(g_i)$, die $g_j$ nennen, und $\Sigma_{ij}=\emptyset$, falls es keinen solchen Eintrag gibt. Ein \emph{Paket mit Dienst} ist ein Tupel $(x,y,s,\zeta)$ aus Quelladresse $x$, Zieladresse $y$, Zieldienst $s\in\mathcal{D}$ und Zustand $\zeta\in\{\textsc{neu},\textsc{etabliert}\}$. Der Quellport ist bewusst nicht Teil des Tupels (Satz~\ref{satz:quellport}).
+\end{definition}
+
+Die \emph{erweiterte Regelliste} besteht aus Regel $0$ (Zustand \textsc{etabliert} $\Rightarrow$ \textsc{accept}) und, für jedes Paar $i\ne j$,
+\begin{itemize}
+	\item für jedes Protokoll $\pi\in\Pi$ und jedes Intervall $I$ der normalisierten Liste von $\Sigma_{ij}^\pi$ der Regel $R_{i,j,\pi,I}$: $x\in N_i\wedge y\in N_j\wedge\text{Protokoll}=\pi\wedge\text{Zielport}\in I\Rightarrow\textsc{accept}$;
+	\item für jedes $\omega\in\Sigma_{ij}\cap\Omega$ die Regel: $x\in N_i\wedge y\in N_j\wedge\text{Protokoll}=\omega\Rightarrow\textsc{accept}$,
+\end{itemize}
+mit der Standardaktion \textsc{drop}.
+
+\begin{satz}[Default-Deny-Korrektheit mit Diensten]
+\label{satz:ports-urteil}
+	Für jedes Paket $(x,y,s,\textsc{neu})$ ist das Urteil der erweiterten Regelliste genau dann \textsc{accept}, wenn es Gruppen $i\ne j$ mit $x\in N_i$, $y\in N_j$ und $s\in\Sigma_{ij}$ gibt. Diese Gruppen sind eindeutig. Das Urteil hängt von der Reihenfolge der Freigaberegeln nicht ab und von jedem $\Sigma_{ij}^\pi$ nur über die Menge selbst: Jede andere Liste von Intervallen oder Portblöcken mit derselben Vereinigung liefert dasselbe Urteil. Ist $\Sigma_{ij}=\mathcal{D}$ für alle $(i,j)\in P$ und sonst $\Sigma_{ij}=\emptyset$, so ist das Urteil für jeden Zieldienst $s$ gleich dem aus Satz~\ref{satz:firewall}.
+\end{satz}
+
+\begin{proof}
+	Regel $0$ trifft auf \textsc{neu} nicht zu. Die Regel $R_{i,j,\pi,I}$ trifft genau dann zu, wenn $x\in N_i$, $y\in N_j$ und $s=(\pi,q)$ mit $q\in I$. Da die Intervalle der normalisierten Liste zusammen $\Sigma_{ij}^\pi$ ergeben (Satz~\ref{satz:normalform}), gibt es für $s=(\pi,q)$ genau dann ein zutreffendes $R_{i,j,\pi,I}$, wenn $q\in\Sigma_{ij}^\pi$, das heißt $s\in\Sigma_{ij}$. Für $s=\omega\in\Omega$ trifft eine Regel des zweiten Typs genau dann zu, wenn $\omega\in\Sigma_{ij}$. Also trifft eine Freigabe-Regel genau dann zu, wenn $x\in N_i$, $y\in N_j$, $i\neq j$ und $s\in\Sigma_{ij}$; andernfalls gilt die Standardaktion \textsc{drop}. Nach Satz~\ref{satz:korrekt} (K3) sind die $N_i$ disjunkt; die Gruppen $i$ und $j$ sind also eindeutig. Alle Freigaben haben dieselbe Aktion, die Reihenfolge ist daher unerheblich. Die Regeln wurden nur über die Zugehörigkeit $q\in I$ ausgewertet, und diese ändert sich nicht, wenn man die Intervalle durch andere Mengen mit gleicher Vereinigung ersetzt. Gilt $\Sigma_{ij}=\mathcal{D}$ genau für $(i,j)\in P$, so ist $s\in\Sigma_{ij}$ für jedes $s$ äquivalent zu $(i,j)\in P$; das ist die Bedingung in Satz~\ref{satz:firewall}.
+\end{proof}
+
+\begin{korollar}[Regelzahl]
+	Für das Paar $(i,j)$ erzeugt die erweiterte Regelliste genau $\sum_{\pi\in\Pi}m(\Sigma_{ij}^\pi)+|\Sigma_{ij}\cap\Omega|\le 2\cdot 32768+|\Omega|$ Freigabe-Regeln. Mit Portblöcken statt Intervallen sind es höchstens $30\,m(\Sigma_{ij}^\pi)$ Regeln je Protokoll.
+\end{korollar}
+
+\begin{proof}
+	Die erste Aussage ist die Zahl der Regeln in der Definition zusammen mit $m(\cdot)\le 32768$ aus Satz~\ref{satz:normalform}. Die zweite folgt, indem jedes Intervall nach Satz~\ref{satz:bereich} durch höchstens $30$ Portblöcke ersetzt wird; das Urteil bleibt nach Satz~\ref{satz:ports-urteil} unverändert.
+\end{proof}
+
+\section{Quellport und gleichzeitige Verbindungen}
+
+Eine Verbindung eines Protokolls $\pi\in\Pi$ wird im Zustandsspeicher der Firewall durch das 4-Tupel $(x,q_s,y,q_d)$ aus Quelladresse, Quellport, Zieladresse und Zielport identifiziert. Den Quellport wählt der Absender; Betriebssysteme vergeben ihn aus einem Bereich $E\subseteq\mathcal{P}$ (Beispiel~\ref{bsp:portbloecke}).
+
+\begin{satz}[Quellportunabhängigkeit und Verbindungsobergrenze]
+\label{satz:quellport}
+	(a) Das Urteil der erweiterten Regelliste für neue Pakete hängt nicht vom Quellport ab. (b) Sei $E\subseteq\mathcal{P}$ die Menge der Quellports, die das System von $x$ vergibt. Zu festem $(x,y,\pi,q_d)$ bestehen zu jedem Zeitpunkt höchstens $|E|$ Verbindungen gleichzeitig.
+\end{satz}
+
+\begin{proof}
+	(a) Keine Regel in der Definition der erweiterten Regelliste nimmt auf den Quellport Bezug; das Urteil ist nach Satz~\ref{satz:ports-urteil} durch $(x,y,s,\zeta)$ bestimmt. (b) Verbindungen mit festem $(x,y,\pi,q_d)$ unterscheiden sich nach der Identifikation durch das 4-Tupel nur im Quellport $q_s$. Die Abbildung \glqq Verbindung $\mapsto q_s$\grqq{} ist also injektiv und hat Werte in $E$.
+\end{proof}
+
+\begin{bemerkung}[Einordnung]
+	Die Schranke in (b) hängt nicht von $\Sigma$ ab; die Freigabe regelt, \emph{ob} eine Verbindung entstehen darf, nicht, wie viele. Für $E=[49152,65535]$ ist $|E|=16384$, für den Linux-Standard $|E|=28232$ (Beispiel~\ref{bsp:portbloecke}); hinter einer Adressumsetzung (NAT) gilt die Schranke für die umgesetzte Adresse $x$ und damit für alle Clients zusammen. Da der Absender $q_s$ frei wählt, ist eine Einschränkung des Quellports kein Mittel der Zugriffskontrolle, und das Modell sieht keine vor. Für zustandslose Cisco-ACLs ist der Quellport dennoch relevant: Ein Antwortpaket trägt den Dienstport $q_d$ als Quellport und $q_s$ als Zielport. Eine Rückregel kann den Quellport also auf den Dienstport festlegen, den Zielport aber nur auf den Bereich $E$ des Clients einschränken.
+\end{bemerkung}
+
+\section{Überlappung, Lücken und Vollständigkeit}
+
+Wie bei den Subnetzblöcken (Satz~\ref{satz:frei}) lässt sich für eine Liste von Port-Intervallen exakt angeben, wo sie sich überlappt und welche Ports sie nicht abdeckt. Sei $(I_1,\ldots,I_m)$ eine beliebige, nicht notwendig normalisierte Liste von Intervallen $I_k=[l_k,r_k]$, aufsteigend nach $l_k$ sortiert (bei Gleichheit beliebig). Mit $R_0=-1$, $R_k=\max\{r_1,\ldots,r_k\}$ und $l_{m+1}=65536$ definiere für $k=0,\ldots,m$ den \emph{Zwischenraum} $G_k=[R_k+1,\,l_{k+1}-1]$; er ist leer, falls $l_{k+1}\le R_k+1$.
+
+\begin{satz}[Lücken]
+\label{satz:luecken}
+	Die nicht abgedeckten Ports sind $\mathcal{P}\setminus\bigcup_kI_k=\bigcup_{k=0}^{m}G_k$. Die nichtleeren $G_k$ bilden in aufsteigender Reihenfolge eine normalisierte Liste; ihre Zahl ist höchstens $m+1$.
+\end{satz}
+
+\begin{proof}
+	Für $q\in\mathcal{P}$ sei $k(q)=|\{t:l_t\le q\}|$. Wegen der Sortierung sind dies genau $t=1,\ldots,k(q)$. Der Port $q$ ist genau dann abgedeckt, wenn es $t\le k(q)$ mit $q\le r_t$ gibt, das heißt $q\le R_{k(q)}$ (für $k(q)=0$ ist $R_0=-1$, es gibt keinen solchen $t$). Ist $q$ nicht abgedeckt, so gilt $R_k+1\le q$ mit $k=k(q)$ und, nach Definition von $k(q)$, $q<l_{k+1}$ (für $k=m$ wegen $q\le 65535<l_{m+1}$); also $q\in G_k$. Umgekehrt sei $q\in G_k$. Für $t\le k$ ist $l_t\le r_t\le R_k<q$; für $t>k$ ist $l_t\ge l_{k+1}>q$. Daher ist $k(q)=k$ und $q>R_k$: Der Port ist nicht abgedeckt.
+
+	Seien $G_k$ und $G_{k'}$ nichtleer mit $k<k'$. Es gilt $R_{k'}\ge r_{k+1}\ge l_{k+1}$, also beginnt $G_{k'}$ bei $R_{k'}+1\ge l_{k+1}+1=(l_{k+1}-1)+2$, und $G_k$ endet bei $l_{k+1}-1$. Die Intervalle sind also geordnet, disjunkt und nicht benachbart. Es gibt $m+1$ Zwischenräume, daher höchstens $m+1$ nichtleere.
+\end{proof}
+
+\begin{korollar}[Vollständigkeit]
+\label{kor:vollstaendig}
+	Die Vereinigung der Liste ist genau dann $\mathcal{P}$, wenn $l_1=0$, $l_{k+1}\le R_k+1$ für alle $1\le k<m$ und $R_m=65535$ gilt. Die leere Liste ist nie vollständig. Die Prüfung kostet $O(m\log m)$ für das Sortieren und $O(m)$ danach.
+\end{korollar}
+
+\begin{proof}
+	Nach Satz~\ref{satz:luecken} ist die Liste genau dann vollständig, wenn alle $G_k$ leer sind. $G_0=[0,l_1-1]$ ist genau bei $l_1=0$ leer; $G_k$ für $1\le k<m$ genau bei $l_{k+1}\le R_k+1$; $G_m=[R_m+1,65535]$ genau bei $R_m\ge65535$, also $R_m=65535$. Für $m=0$ ist $G_0=[0,65535]\ne\emptyset$. Die Laufzeit folgt aus einem Durchlauf, der $R_k$ fortschreibt.
+\end{proof}
+
+\begin{korollar}[Überlappung]
+\label{kor:ueberlappung}
+	Die sortierte Liste ist genau dann überlappungsfrei (paarweise disjunkte Intervalle), wenn $l_{k+1}>r_k$ für alle $1\le k<m$ gilt. Dann ist $R_k=r_k$.
+\end{korollar}
+
+\begin{proof}
+	Ist $l_{k+1}\le r_k$, so liegt $l_{k+1}$ wegen $l_k\le l_{k+1}$ in $I_k\cap I_{k+1}$. Gilt umgekehrt die Bedingung, so ist für $t<u$ jedes Element von $I_t$ höchstens $r_t<l_{t+1}\le l_u$, also kleiner als jedes Element von $I_u$; die Intervalle sind disjunkt. Aus $r_t<l_{t+1}\le r_{t+1}$ folgt, dass die $r_k$ wachsen, also $R_k=r_k$.
+\end{proof}
+
+Eine Überlappung ändert nach Satz~\ref{satz:ports-urteil} das Urteil nicht, ist also kein Fehler; sie zeigt aber eine redundante oder widersprüchlich gemeinte Freigabe an und eignet sich als Warnung. Eine Lücke bedeutet dagegen: Auf diesen Ports gilt Default-Deny. Für \texttt{tcp/1-65535} soll sie fehlen, für eine gezielte Freigabe wie $[22,22]\cup[443,443]$ ist sie gewollt.
+
+\begin{satz}[Verschmelzen]
+\label{satz:merge}
+	Sei die Liste wie oben sortiert. Durchläuft man sie und beginnt für $I_{k+1}$ ein neues Ausgabeintervall genau dann, wenn $l_{k+1}\ge R_k+2$ gilt, und verlängert andernfalls das letzte Ausgabeintervall auf $R_{k+1}$, so entsteht die normalisierte Liste der Menge $\bigcup_kI_k$. Der Aufwand ist $O(m)$ nach dem Sortieren.
+\end{satz}
+
+\begin{proof}
+	Invariante nach $k$ Schritten: Die Ausgabe ist normalisiert, stellt $\bigcup_{t\le k}I_t$ dar, und ihr letztes Intervall endet bei $R_k$. Für $k=1$ ist das $I_1$. Im Schritt $k\to k+1$ sei $[a,R_k]$ das letzte Ausgabeintervall; $a$ ist ein $l_t$ mit $t\le k$, also $a\le l_{k+1}$. \emph{Fall $l_{k+1}\le R_k+1$:} Wegen $a\le l_{k+1}\le R_k+1$ ist $[a,R_k]\cup I_{k+1}$ ein Intervall, nämlich $[a,\max(R_k,r_{k+1})]=[a,R_{k+1}]$; die Abstände zu den früheren Ausgabeintervallen bleiben unverändert. \emph{Fall $l_{k+1}\ge R_k+2$:} Es gilt $r_{k+1}\ge l_{k+1}>R_k$, also $R_{k+1}=r_{k+1}$, und das neue Intervall $I_{k+1}$ erfüllt die Abstandsbedingung zum letzten Ausgabeintervall. Die Invariante gilt also für $k+1$. Nach $m$ Schritten ist die Ausgabe eine normalisierte Liste von $\bigcup_kI_k$, nach Satz~\ref{satz:normalform} die einzige.
+\end{proof}
+
+\section{Vergleich von Freigabemengen}
+
+Zwei Konfigurationen lassen sich auch auf Dienstebene vergleichen, ähnlich dem exakten Richtlinienvergleich (Abschnitt~\ref{sec:subgraph-verbindung}): Für gleiche Gruppen und Subnetze ist $\Sigma_{ij}\subseteq\Sigma'_{ij}$ für alle $(i,j)$ genau dann, wenn jede Menge $\Sigma^\pi_{ij}$ in $\Sigma'^{\,\pi}_{ij}$ liegt und $\Sigma_{ij}\cap\Omega\subseteq\Sigma'_{ij}\cap\Omega$. Der folgende Satz entscheidet die portbezogenen Teile.
+
+\begin{satz}[Teilmengenprüfung]
+\label{satz:teilmenge}
+	Seien $A=(I_1,\ldots,I_a)$ und $B=(J_1,\ldots,J_b)$ normalisierte Listen. Dann gilt $\bigcup A\subseteq\bigcup B$ genau dann, wenn jedes $I_k$ in einem einzigen $J_u$ enthalten ist. Die Prüfung gelingt mit zwei Zeigern in $O(a+b)$; die Mengen sind genau dann gleich, wenn die Listen gleich sind.
+\end{satz}
+
+\begin{proof}
+	\glqq$\Leftarrow$\grqq{} ist klar. \glqq$\Rightarrow$\grqq{}: Sei $I=[l,r]\subseteq\bigcup B$ und $l\in J_u=[l_u',r_u']$. Angenommen, $r>r_u'$. Dann ist $r_u'+1\in I\subseteq\bigcup B$, also $r_u'+1\in J_v$ für ein $v$. Es gilt $v\ne u$. Für $v>u$ ist der Anfang von $J_v$ mindestens $r_u'+2$; für $v<u$ ist das Ende von $J_v$ kleiner als $l_u'\le l<r_u'+1$. Beides widerspricht $r_u'+1\in J_v$. Also ist $r\le r_u'$ und $I\subseteq J_u$.
+
+	Zwei Zeiger: Für aufsteigende $I_k$ rückt der Zeiger $u$ vor, solange das Ende von $J_u$ kleiner als $l_k$ ist. Solche $J_u$ enthalten keinen späteren Anfang $l_{k'}\ge l_k$ und können verworfen werden. Dann ist zu prüfen, ob $J_u$ das Intervall $I_k$ enthält; beide Zeiger bewegen sich nur vorwärts, daher $O(a+b)$. Die Gleichheit der Mengen folgt aus gegenseitiger Teilmenge und der Eindeutigkeit der Normalform (Satz~\ref{satz:normalform}).
+\end{proof}
+
+\section{Beispiel: Konfigurationsbeispiel mit Diensten}
+
+Die Gruppen und Subnetze seien die des Konfigurationsbeispiels (Abschnitt~\ref{sec:konfig}). Das Beispiel ist angenommen und gehört nicht zur aktuellen Ausgabe von \texttt{subnetplan}; es zeigt, wie die bisherigen vier Freigaben mit Diensten aussähen.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{lXrr}
+\toprule
+Paar $(i,j)$ & Dienstmenge $\Sigma_{ij}$ (angenommen) & Intervalle & Portblöcke \\
+\midrule
+(Entwicklung, Server) & \texttt{tcp}: $22$, $443$, $8000$ bis $8099$ & $3$ & $1+1+3=5$ \\
+(Entwicklung, Drucker) & \texttt{tcp}: $631$, $9100$ & $2$ & $2$ \\
+(Server, Drucker) & \texttt{tcp}: $631$ & $1$ & $1$ \\
+(HR, Drucker) & \texttt{tcp}: $631$ & $1$ & $1$ \\
+\midrule
+Summe & & $7$ & $9$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Die Intervallzahlen sind die Längen der normalisierten Listen (Satz~\ref{satz:normalform}); jede der Mengen $\{22\}$, $\{443\}$, $\{631\}$, $\{9100\}$ ist ein einzelner Portblock mit $p=16$, und $[8000,8099]$ braucht drei Blöcke (Beispiel~\ref{bsp:portbloecke}). Statt vier Regeln entstehen sieben, mit Portblöcken neun. Für die erste Zeile sähe die \texttt{nftables}-Regel mit einer Menge so aus:
+\begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize]
+ip saddr 10.20.0.0/24 ip daddr 10.20.1.128/26 tcp dport { 22, 443, 8000-8099 } accept comment "Entwicklung -> Server"
+\end{lstlisting}
+Die Schreibweisen der Plattformen für Bereiche sind \code{--dport 8000:8099} bei \texttt{iptables}, \code{tcp dport 8000-8099} bei \texttt{nftables} und \code{range 8000 8099} bei Cisco-ACLs. Dass sie dasselbe Intervall bezeichnen, ist eine Annahme über die Plattformen; Satz~\ref{satz:ports-urteil} bezieht sich auf die Regelliste des Modells und müsste für jede Plattform wie bei Satz~\ref{satz:cisco} eigens begründet werden.
+
+\section{Umsetzungsentwurf und offene Punkte}
+
+Eine Umsetzung müsste die folgenden Teile ergänzen; keiner davon ist bisher vorhanden.
+
+\begin{itemize}
+	\item \textbf{Konfiguration:} Einträge in \code{access} erhielten optional eine Portliste, etwa \code{to: Server} mit \code{ports: [tcp/22, tcp/443, tcp/8000-8099]}; ein bloßer Gruppenname bliebe \glqq alle Dienste\grqq{} und damit rückwärtskompatibel (Satz~\ref{satz:ports-urteil}, letzter Teil). Portlisten mit $l>r$, Werten außerhalb von $0$ bis $65535$ oder unbekanntem Protokoll wären als \code{PlanError} abzulehnen.
+	\item \textbf{Normalisierung:} Je Paar und Protokoll werden die Intervalle sortiert und nach Satz~\ref{satz:merge} verschmolzen: $O(m\log m)$.
+	\item \textbf{Regeln:} Die Regeln folgen der erweiterten Regelliste, bei Plattformen ohne Bereichsoperator mit der Blockzerlegung nach Satz~\ref{satz:bereich}. Die Rückübersetzung müsste Tripel $(i,j,s)$ statt Paare $(i,j)$ rekonstruieren und mit $\Sigma_{ij}$ vergleichen (Satz~\ref{satz:teilmenge}).
+	\item \textbf{Warnungen:} Überlappungen nach Korollar~\ref{kor:ueberlappung}; Lücken nach Satz~\ref{satz:luecken} optional, zum Beispiel für Freigaben, die als vollständig gedacht sind (Korollar~\ref{kor:vollstaendig}).
+	\item \textbf{Tests:} Eigenschaftsbasierte Tests, die jede Aussage dieses Kapitels für zufällige Portmengen gegen eine Prüfung jedes einzelnen Ports vergleichen (so, wie es das eigenständige Skript für die Stichproben getan hat).
+	\item \textbf{Offen:} ICMP-Typen und -Codes sowie Protokollnummern außerhalb von TCP, UDP und ICMP; Portfreigaben zusammen mit der Regelgruppierung (Satz~\ref{satz:gruppe}); die Frage, wie viele Regeln bei gemeinsamer Optimierung über mehrere Paare mindestens nötig sind (die Zerlegung eines Intervalls ist nach Satz~\ref{satz:bereich} je Intervall beschränkt, über Paare hinweg wurde sie nicht untersucht).
+\end{itemize}
+
+\paragraph{Ergebnis des Kapitels.} Portmengen besitzen eine eindeutige Intervall-Normalform mit höchstens $32768$ Intervallen (Satz~\ref{satz:normalform}); jedes Intervall ist die Vereinigung von höchstens $30$ Portblöcken, und diese Schranke ist scharf (Satz~\ref{satz:bereich}). Überlappung, Lücken und Vollständigkeit einer Freigabeliste sind in $O(m\log m)$ exakt prüfbar (Satz~\ref{satz:luecken}, Korollare~\ref{kor:vollstaendig} und \ref{kor:ueberlappung}), Normalisierung und Vergleich in $O(m)$ nach dem Sortieren (Sätze~\ref{satz:merge} und \ref{satz:teilmenge}). Der Default-Deny-Satz bleibt mit Diensten gültig und enthält den bisherigen als Sonderfall (Satz~\ref{satz:ports-urteil}).
+
+
 \chapter{Zusammenfassung}
 
 Der Subnetting Algorithmus \texttt{sbntgg} bietet eine effiziente und beweisbar korrekte Methode zur Planung von IP-Netzen und zur Erzeugung von Firewall-Regeln. Durch die Verwendung von:
@@ -1509,7 +1773,7 @@ Der Algorithmus eignet sich besonders für:
 \section{Erweiterungen: Umsetzung und Ausblick}
 \label{sec:ausblick}
 
-Dieser Abschnitt enthielt in der ersten Fassung nur Vorschläge. Die meisten sind in Version~1.1.0 umgesetzt; die Beweise bleiben hier stehen und werden durch Angaben zu Modul, Kommandozeile und Prüfung ergänzt (Tabelle~\ref{tab:status}). Offen bleiben Protokolle und Ports, weitere Plattformen, die Integrationen (DHCP, DNS, IPAM), mehrere Netze je Gruppe und die theoretischen Fragen am Ende des Abschnitts.
+Dieser Abschnitt enthielt in der ersten Fassung nur Vorschläge. Die meisten sind in Version~1.1.0 umgesetzt; die Beweise bleiben hier stehen und werden durch Angaben zu Modul, Kommandozeile und Prüfung ergänzt (Tabelle~\ref{tab:status}). Offen bleibt die Umsetzung von Protokollen und Ports (formal entworfen in Kapitel~\ref{sec:ports}), außerdem weitere Plattformen, die Integrationen (DHCP, DNS, IPAM), mehrere Netze je Gruppe und die theoretischen Fragen am Ende des Abschnitts.
 
 \begin{center}
 \small
@@ -1531,7 +1795,8 @@ Erweitern, Verdoppeln & Korollar~\ref{kor:erweiterung}, Satz~\ref{satz:verdopplu
 Rückübersetzung & --- & \texttt{roundtrip.py} & umgesetzt \\
 Richtlinienvergleich & Lemma~\ref{lem:richtlinie}, Bemerkung~\ref{bem:heuristik} & \texttt{policy.py} & umgesetzt \\
 Prüfung eines Plans & Sätze des Kerns & \texttt{verify.py} & umgesetzt \\
-Ports, Plattformen, Integrationen & --- & --- & offen \\
+Ports (nur Entwurf) & Satz~\ref{satz:ports-urteil} & --- & Entwurf \\
+Plattformen, Integrationen & --- & --- & offen \\
 \bottomrule
 \end{tabular}
 \label{tab:status}
@@ -1676,7 +1941,7 @@ Im Mittel nutzt ein Block also etwa $72\,\%$ seiner Adressen für Bedarf und Res
 \section{Erweiterungen der Firewall-Erzeugung}
 
 \begin{itemize}
-	\item \textbf{Protokolle und Ports} (offen). \texttt{access} könnte Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert.
+	\item \textbf{Protokolle und Ports} (Entwurf, nicht umgesetzt). \texttt{access} könnte Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert. Das ist als Satz~\ref{satz:ports-urteil} bewiesen; Entwurf und Beweise stehen in Kapitel~\ref{sec:ports}, umgesetzt ist es nicht.
 	\item \textbf{Mengen und Objektgruppen} (umgesetzt, \texttt{--group-rules}). Die Gruppierung aus Satz~\ref{satz:gruppe} wird als \texttt{nftables}-Menge, \texttt{ipset} oder \texttt{object-group} (Cisco) ausgegeben.
 	\item \textbf{Protokollierung} verworfener Pakete (umgesetzt, \texttt{--log-drops}); zeitlich begrenzte Freigaben sind offen.
 	\item \textbf{Rückübersetzung als Test} (umgesetzt, \texttt{--roundtrip}, \code{roundtrip.py}). Die erzeugten Regeln werden wieder eingelesen und die daraus rekonstruierte Menge $P'$ mit $P$ verglichen; zusätzlich muss das Regelwerk alles Übrige verwerfen (Default-Deny erkannt). Gilt immer $P' = P$, stimmen Generator und Leser mit Satz~\ref{satz:firewall} überein. Das ist ein Test und kein Beweis, denn gleiche Fehler in beiden Teilen bleiben unentdeckt.
@@ -1773,7 +2038,8 @@ Bestandsnetze, Pools & mittel & Praxistauglichkeit & Satz~\ref{satz:bestand} & u
 Inkrementelle Planung & mittel & keine Umnummerierung & Korollar~\ref{kor:erweiterung} & umgesetzt \\
 Hierarchie & mittel & Routen-Aggregation & Satz~\ref{satz:hier} & umgesetzt \\
 Eigenschaftsbasierte Tests & mittel & Gewissheit & Abschnitt~\ref{sec:tests} & umgesetzt \\
-Ports, weitere Plattformen & hoch & Funktionsumfang & --- & offen \\
+Ports & hoch & Funktionsumfang & Satz~\ref{satz:ports-urteil} & Entwurf \\
+Weitere Plattformen & hoch & Funktionsumfang & --- & offen \\
 Formale Verifikation (SMT, Beweisassistent) & hoch & Gewissheit & Satz~\ref{satz:luecke} & offen \\
 \bottomrule
 \end{tabularx}
