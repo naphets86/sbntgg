@@ -1,0 +1,115 @@
+{
+  "experiment": "growth_factor",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "samples": 200000
+  },
+  "seconds": 2.6724928000001,
+  "description": "gamma-Sweep für das Konfigurationsbeispiel und Vergleich der Aufrundungen",
+  "sweep": [
+    {
+      "growth_factor": 1.0,
+      "allocated": 304,
+      "utilization_percent": 0.4638671875,
+      "mean_block_utilization": 0.8859375
+    },
+    {
+      "growth_factor": 1.1,
+      "allocated": 512,
+      "utilization_percent": 0.78125,
+      "mean_block_utilization": 0.66015625
+    },
+    {
+      "growth_factor": 1.2,
+      "allocated": 544,
+      "utilization_percent": 0.830078125,
+      "mean_block_utilization": 0.60703125
+    },
+    {
+      "growth_factor": 1.3,
+      "allocated": 544,
+      "utilization_percent": 0.830078125,
+      "mean_block_utilization": 0.65390625
+    },
+    {
+      "growth_factor": 1.4,
+      "allocated": 544,
+      "utilization_percent": 0.830078125,
+      "mean_block_utilization": 0.69765625
+    },
+    {
+      "growth_factor": 1.5,
+      "allocated": 544,
+      "utilization_percent": 0.830078125,
+      "mean_block_utilization": 0.74453125
+    },
+    {
+      "growth_factor": 1.6,
+      "allocated": 608,
+      "utilization_percent": 0.927734375,
+      "mean_block_utilization": 0.68984375
+    },
+    {
+      "growth_factor": 1.7,
+      "allocated": 608,
+      "utilization_percent": 0.927734375,
+      "mean_block_utilization": 0.73046875
+    },
+    {
+      "growth_factor": 1.8,
+      "allocated": 608,
+      "utilization_percent": 0.927734375,
+      "mean_block_utilization": 0.76796875
+    },
+    {
+      "growth_factor": 1.9,
+      "allocated": 608,
+      "utilization_percent": 0.927734375,
+      "mean_block_utilization": 0.80859375
+    },
+    {
+      "growth_factor": 2.0,
+      "allocated": 608,
+      "utilization_percent": 0.927734375,
+      "mean_block_utilization": 0.84609375
+    }
+  ],
+  "samples": 200000,
+  "naive_float_mismatches": 48,
+  "rounded_float_mismatches": 0,
+  "exact_mismatches": 0,
+  "naive_examples": [
+    {
+      "hosts": 1520500,
+      "gamma": 0.686,
+      "naive": 1043064,
+      "exact": 1043063
+    },
+    {
+      "hosts": 1407240,
+      "gamma": 1.475,
+      "naive": 2075680,
+      "exact": 2075679
+    },
+    {
+      "hosts": 1818480,
+      "gamma": 0.275,
+      "naive": 500083,
+      "exact": 500082
+    },
+    {
+      "hosts": 1163275,
+      "gamma": 1.12,
+      "naive": 1302869,
+      "exact": 1302868
+    },
+    {
+      "hosts": 761150,
+      "gamma": 0.56,
+      "naive": 426245,
+      "exact": 426244
+    }
+  ],
+  "passed": true
+}

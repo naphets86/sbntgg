@@ -1,0 +1,69 @@
+{
+  "software": "subnetplan",
+  "python": "3.13.16",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "seed": 2026,
+  "quick": false,
+  "started": "2026-10-19T09:01:24.466723+00:00",
+  "finished": "2026-10-19T09:02:04.556086+00:00",
+  "experiments": {
+    "runtime": {
+      "file": "runtime.json",
+      "seconds": 0.3788480000000618,
+      "passed": false,
+      "error": "PlanError: Keine freie VLAN-ID mehr verfügbar"
+    },
+    "utilization": {
+      "file": "utilization.json",
+      "seconds": 5.182306900000185,
+      "passed": true
+    },
+    "growth_factor": {
+      "file": "growth_factor.json",
+      "seconds": 2.6724928000001,
+      "passed": true
+    },
+    "packability": {
+      "file": "packability.json",
+      "seconds": 0.413219700000127,
+      "passed": true
+    },
+    "extension": {
+      "file": "extension.json",
+      "seconds": 1.4648059999999532,
+      "passed": true
+    },
+    "grouping": {
+      "file": "grouping.json",
+      "seconds": 23.479610299999877,
+      "passed": true
+    },
+    "roundtrip": {
+      "file": "roundtrip.json",
+      "seconds": 1.13785340000004,
+      "passed": true
+    },
+    "hierarchy": {
+      "file": "hierarchy.json",
+      "seconds": 1.5332335000000512,
+      "passed": true
+    },
+    "doubling": {
+      "file": "doubling.json",
+      "seconds": 0.44442689999982576,
+      "passed": true
+    },
+    "ipv6": {
+      "file": "ipv6.json",
+      "seconds": 0.020863400000052934,
+      "passed": false,
+      "error": "PlanError: Keine freie VLAN-ID mehr verfügbar"
+    },
+    "policy_comparison": {
+      "file": "policy_comparison.json",
+      "seconds": 3.242842800000062,
+      "passed": true
+    }
+  },
+  "all_passed": false
+}

@@ -1,0 +1,12 @@
+{
+  "experiment": "runtime",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "repeats": 3,
+    "max_n": 5000
+  },
+  "seconds": 0.3788480000000618,
+  "error": "PlanError: Keine freie VLAN-ID mehr verfügbar",
+  "passed": false
+}

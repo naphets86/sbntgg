@@ -1,0 +1,23 @@
+{
+  "experiment": "policy_comparison",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "pairs": 3000
+  },
+  "seconds": 3.242842800000062,
+  "description": "A ⊆ B (komponentenweise) gegen die Signaturprüfung des Subgraph Algorithmus",
+  "pairs_per_test": 3000,
+  "contained_pairs": {
+    "detected": 1887,
+    "missed": 1113,
+    "missed_rate": 0.371,
+    "exact_rotation_check_detected": 3000
+  },
+  "independent_pairs": {
+    "false_positives": 247,
+    "false_positive_rate": 0.08233333333333333
+  },
+  "conclusion": "Die exakte Prüfung ist maßgeblich; die Heuristik darf keine Richtlinie verwerfen.",
+  "passed": true
+}

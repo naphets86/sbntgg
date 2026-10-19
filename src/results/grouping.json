@@ -1,0 +1,269 @@
+{
+  "experiment": "grouping",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "plans": 40
+  },
+  "seconds": 23.479610299999877,
+  "description": "Regeln je Zugriffspaar gegen Regeln je Zielmenge; Zeilenzahl der Ausgabe",
+  "rows": [
+    {
+      "n": 10,
+      "density": 0.05,
+      "mean_pairs": 4.475,
+      "mean_rule_groups": 3.325,
+      "rule_ratio": 0.7430167597765364,
+      "mean_lines": {
+        "iptables": 13.475,
+        "nftables": 13.475,
+        "cisco": 50.95
+      },
+      "mean_lines_grouped": {
+        "iptables": 33.4,
+        "nftables": 12.325,
+        "cisco": 56.75
+      }
+    },
+    {
+      "n": 10,
+      "density": 0.1,
+      "mean_pairs": 8.575,
+      "mean_rule_groups": 5.4,
+      "rule_ratio": 0.6297376093294461,
+      "mean_lines": {
+        "iptables": 17.575,
+        "nftables": 17.575,
+        "cisco": 59.15
+      },
+      "mean_lines_grouped": {
+        "iptables": 49.975,
+        "nftables": 14.4,
+        "cisco": 67.35
+      }
+    },
+    {
+      "n": 10,
+      "density": 0.3,
+      "mean_pairs": 27.3,
+      "mean_rule_groups": 9.375,
+      "rule_ratio": 0.3434065934065934,
+      "mean_lines": {
+        "iptables": 36.3,
+        "nftables": 36.3,
+        "cisco": 96.6
+      },
+      "mean_lines_grouped": {
+        "iptables": 92.475,
+        "nftables": 18.375,
+        "cisco": 97.575
+      }
+    },
+    {
+      "n": 10,
+      "density": 0.5,
+      "mean_pairs": 45.2,
+      "mean_rule_groups": 9.975,
+      "rule_ratio": 0.22068584070796457,
+      "mean_lines": {
+        "iptables": 54.2,
+        "nftables": 54.2,
+        "cisco": 132.4
+      },
+      "mean_lines_grouped": {
+        "iptables": 114.0,
+        "nftables": 18.975,
+        "cisco": 117.1
+      }
+    },
+    {
+      "n": 10,
+      "density": 0.9,
+      "mean_pairs": 81.075,
+      "mean_rule_groups": 9.875,
+      "rule_ratio": 0.12180080172679618,
+      "mean_lines": {
+        "iptables": 90.075,
+        "nftables": 90.075,
+        "cisco": 204.15
+      },
+      "mean_lines_grouped": {
+        "iptables": 148.45,
+        "nftables": 18.875,
+        "cisco": 151.95
+      }
+    },
+    {
+      "n": 30,
+      "density": 0.05,
+      "mean_pairs": 43.975,
+      "mean_rule_groups": 21.9,
+      "rule_ratio": 0.49801023308698117,
+      "mean_lines": {
+        "iptables": 52.975,
+        "nftables": 52.975,
+        "cisco": 209.95
+      },
+      "mean_lines_grouped": {
+        "iptables": 184.3,
+        "nftables": 30.9,
+        "cisco": 233.25
+      }
+    },
+    {
+      "n": 30,
+      "density": 0.1,
+      "mean_pairs": 90.35,
+      "mean_rule_groups": 28.525,
+      "rule_ratio": 0.31571665744327615,
+      "mean_lines": {
+        "iptables": 99.35,
+        "nftables": 99.35,
+        "cisco": 302.7
+      },
+      "mean_lines_grouped": {
+        "iptables": 270.475,
+        "nftables": 37.525,
+        "cisco": 298.0
+      }
+    },
+    {
+      "n": 30,
+      "density": 0.3,
+      "mean_pairs": 259.325,
+      "mean_rule_groups": 30.0,
+      "rule_ratio": 0.11568495131591633,
+      "mean_lines": {
+        "iptables": 268.325,
+        "nftables": 268.325,
+        "cisco": 640.65
+      },
+      "mean_lines_grouped": {
+        "iptables": 448.325,
+        "nftables": 39.0,
+        "cisco": 471.325
+      }
+    },
+    {
+      "n": 30,
+      "density": 0.5,
+      "mean_pairs": 430.675,
+      "mean_rule_groups": 30.0,
+      "rule_ratio": 0.06965809485110581,
+      "mean_lines": {
+        "iptables": 439.675,
+        "nftables": 439.675,
+        "cisco": 983.35
+      },
+      "mean_lines_grouped": {
+        "iptables": 619.675,
+        "nftables": 39.0,
+        "cisco": 642.675
+      }
+    },
+    {
+      "n": 30,
+      "density": 0.9,
+      "mean_pairs": 783.55,
+      "mean_rule_groups": 29.95,
+      "rule_ratio": 0.038223470104013786,
+      "mean_lines": {
+        "iptables": 792.55,
+        "nftables": 792.55,
+        "cisco": 1689.1
+      },
+      "mean_lines_grouped": {
+        "iptables": 970.9,
+        "nftables": 38.95,
+        "cisco": 994.1
+      }
+    },
+    {
+      "n": 100,
+      "density": 0.05,
+      "mean_pairs": 495.275,
+      "mean_rule_groups": 99.425,
+      "rule_ratio": 0.20074705971430015,
+      "mean_lines": {
+        "iptables": 504.275,
+        "nftables": 504.275,
+        "cisco": 1392.55
+      },
+      "mean_lines_grouped": {
+        "iptables": 1100.825,
+        "nftables": 108.425,
+        "cisco": 1195.6
+      }
+    },
+    {
+      "n": 100,
+      "density": 0.1,
+      "mean_pairs": 988.675,
+      "mean_rule_groups": 100.0,
+      "rule_ratio": 0.10114547247578831,
+      "mean_lines": {
+        "iptables": 997.675,
+        "nftables": 997.675,
+        "cisco": 2379.35
+      },
+      "mean_lines_grouped": {
+        "iptables": 1597.675,
+        "nftables": 109.0,
+        "cisco": 1690.675
+      }
+    },
+    {
+      "n": 100,
+      "density": 0.3,
+      "mean_pairs": 2974.575,
+      "mean_rule_groups": 100.0,
+      "rule_ratio": 0.03361824798500626,
+      "mean_lines": {
+        "iptables": 2983.575,
+        "nftables": 2983.575,
+        "cisco": 6351.15
+      },
+      "mean_lines_grouped": {
+        "iptables": 3583.575,
+        "nftables": 109.0,
+        "cisco": 3676.575
+      }
+    },
+    {
+      "n": 100,
+      "density": 0.5,
+      "mean_pairs": 4952.275,
+      "mean_rule_groups": 100.0,
+      "rule_ratio": 0.020192739700440707,
+      "mean_lines": {
+        "iptables": 4961.275,
+        "nftables": 4961.275,
+        "cisco": 10306.55
+      },
+      "mean_lines_grouped": {
+        "iptables": 5561.275,
+        "nftables": 109.0,
+        "cisco": 5654.275
+      }
+    },
+    {
+      "n": 100,
+      "density": 0.9,
+      "mean_pairs": 8912.325,
+      "mean_rule_groups": 100.0,
+      "rule_ratio": 0.011220416670173046,
+      "mean_lines": {
+        "iptables": 8921.325,
+        "nftables": 8921.325,
+        "cisco": 18226.65
+      },
+      "mean_lines_grouped": {
+        "iptables": 9521.325,
+        "nftables": 109.0,
+        "cisco": 9614.325
+      }
+    }
+  ],
+  "grouped_pairs_equal_policy": true,
+  "passed": true
+}

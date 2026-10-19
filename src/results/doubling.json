@@ -1,0 +1,53 @@
+{
+  "experiment": "doubling",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "plans": 300
+  },
+  "seconds": 0.44442689999982576,
+  "description": "can_double / double_in_place je Gateway-Position",
+  "by_gateway_position": {
+    "first": {
+      "groups": 417,
+      "doublable": 68,
+      "correct": 68,
+      "renumbered": {
+        "n": 68,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "median": 0.0,
+        "stdev": 0.0
+      }
+    },
+    "last": {
+      "groups": 483,
+      "doublable": 71,
+      "correct": 71,
+      "renumbered": {
+        "n": 71,
+        "min": 1,
+        "max": 1,
+        "mean": 1.0,
+        "median": 1,
+        "stdev": 0.0
+      }
+    },
+    "none": {
+      "groups": 436,
+      "doublable": 74,
+      "correct": 74,
+      "renumbered": {
+        "n": 74,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "median": 0.0,
+        "stdev": 0.0
+      }
+    }
+  },
+  "refusals_correct": true,
+  "passed": true
+}

@@ -1,4 +1,4 @@
-\documentclass[a4paper,12pt]{article}
+\documentclass[a4paper,12pt, twoside]{report}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
@@ -32,6 +32,11 @@
 
 \DeclareMathOperator{\popcnt}{popcnt}
 \newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+
+\newcommand{\experimenthardware}{%
+	\par\smallskip\noindent
+	\textbf{Hardwareplattform der lokal ausgeführten Experimente:} Rechner \texttt{WBIS-H207085} von LENOVO, Modell \texttt{10T8S6LB00}, mit $7{,}87\,\mathrm{GB}$ Arbeitsspeicher; ein Intel-Core-i3-8100T-Prozessor mit $3{,}10\,\mathrm{GHz}$, vier physischen Kernen und vier logischen Prozessoren (x64); Microsoft Windows 11 Pro, 64-Bit, Version $10.0.26200$.
+	\par\smallskip}
 
 % ---------- Farben ----------
 \definecolor{mainblue}{RGB}{25, 70, 140}
@@ -72,11 +77,13 @@
 	{≥}{{$\geq$}}1
 }
 
-\title{Der Subnetting Algorithmus sbntgg}
-\author{Stephan Epp}
-\date{19. Oktober 2026}
+\title{Der Subnetting Algorithmus}
+\author{\textsc{Stephan Epp}\\ {\small \texttt{\textbf{M.Sc.}}}}
+\date{18. Oktober 2026}
 
 \begin{document}
+
+\pagenumbering{roman}
 
 \maketitle
 
@@ -94,11 +101,12 @@ Ein ausführlich erklärtes Konfigurationsbeispiel, eine Einführung in das Subn
 \tableofcontents
 \newpage
 
-\section{Einführung}
+\pagenumbering{arabic}
+\chapter{Einführung}
 
 Der Subnetting Algorithmus \texttt{sbntgg} ist ein deterministischer Algorithmus zur automatischen Planung von IP-Netzen. Aus einer Konfigurationsdatei mit einem zugewiesenen Adressbereich (dem \emph{Basisnetz}) und einer Liste von Gruppen (zum Beispiel \glqq Entwicklung\grqq, \glqq HR\grqq, \glqq Drucker\grqq) berechnet er für jede Gruppe ein eigenes Subnetz mit VLAN-ID, Gateway und Wachstumsreserve. Optional erzeugt er aus der Zugriffsmatrix der Gruppen ein Regelwerk für Firewalls.
 
-\subsection{Problemstellung}
+\section{Problemstellung}
 
 Gegeben sind ein Basisnetz $B$ (IPv4 oder IPv6), $n$ Gruppen $g_1,\ldots,g_n$ mit jeweils $h_i$ Hosts, ein Wachstumsfaktor $\gamma \ge 1$, eine Strategie (\code{vlsm} oder \code{fixed}), eine Gateway-Position (\code{first}, \code{last} oder \code{none}) sowie pro Gruppe optional eine VLAN-ID, eine Priorität und eine Menge von Gruppen, auf die sie zugreifen darf.
 
@@ -112,30 +120,30 @@ Gegeben sind ein Basisnetz $B$ (IPv4 oder IPv6), $n$ Gruppen $g_1,\ldots,g_n$ mi
 	\item Wenn \code{access} leer ist: Die Gruppe erhält keinen Zugriff auf interne Netze.
 \end{itemize}
 
-\subsection{Motivation}
+\section{Motivation}
 
 Die manuelle Planung von Subnetzen ist fehleranfällig: Netze überlappen sich, Blockgrenzen werden falsch berechnet, VLAN-IDs doppelt vergeben, und das Wachstum der Gruppen wird vergessen. Gleichzeitig wird die Zugriffsmatrix \glqq wer darf auf wen\grqq{} meist getrennt vom Adressplan in Firewall-Regeln übersetzt, wodurch Plan und Regeln auseinanderlaufen. \texttt{sbntgg} berechnet beides aus einer einzigen Quelle. Die Grundlagen sind das Subnetting nach \cite{rfc950}, die klassenlose Adressierung (CIDR) nach \cite{rfc4632}, variable Subnetzmasken nach \cite{rfc1878} und die IPv6-Adressarchitektur nach \cite{rfc4291}.
 
 Eine besondere Verbindung besteht zum Subgraph Algorithmus: Die Zugriffsmatrix ist die Adjazenzmatrix eines gerichteten Graphen über den Gruppen (Abschnitt~\ref{sec:subgraph-verbindung}). Der Vergleich zweier Richtlinien ist damit eine Aufgabe für den Subgraph Algorithmus \cite{epp26}.
 
-\subsection{Aufbau der Arbeit}
+\section{Aufbau der Arbeit}
 
-Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 fasst zusammen, beschreibt die in Version~1.1.0 umgesetzten Erweiterungen samt Beweisen und Prüfergebnissen und nennt die noch offenen Punkte.
+Abschnitt~2 erklärt das Subnetting zuerst anschaulich und dann formal. Abschnitt~3 beschreibt den Algorithmus samt Implementierung und beweist seine Korrektheit. Abschnitt~4 analysiert Laufzeit, Optimalität und Speicher. Abschnitt~5 erläutert das Konfigurationsbeispiel und weitere Code-Beispiele. Abschnitt~6 wertet die reproduzierbaren Experimente aus. Abschnitt~7 fasst die Arbeit zusammen, beschreibt die umgesetzten Erweiterungen samt Beweisen und Prüfergebnissen und nennt die noch offenen Punkte.
 
-\section{Grundlagen}
+\chapter{Grundlagen}
 
-\subsection{Subnetting leicht erklärt}
+\section{Subnetting leicht erklärt}
 \label{sec:leicht}
 
 Dieser Abschnitt ist so geschrieben, dass er auch in einer Realschulklasse (etwa im Informatikunterricht ab Klasse~8) verstanden werden kann. Es wird nur Rechnen mit Zweierpotenzen benötigt.
 
-\subsubsection{Was ist eine IP-Adresse?}
+\section{Was ist eine IP-Adresse?}
 
 Jedes Gerät in einem Netzwerk (Computer, Handy, Drucker) braucht eine Adresse, damit Nachrichten ankommen, so wie ein Haus eine Hausnummer braucht, damit der Briefträger es findet. Eine IPv4-Adresse besteht aus vier Zahlen zwischen 0 und 255, getrennt durch Punkte, zum Beispiel \texttt{10.20.1.130}.
 
 Warum nur bis 255? Jede der vier Zahlen besteht aus 8 \emph{Bit}. Ein Bit ist eine Stelle, die 0 oder 1 sein kann. Mit 8 Bit gibt es $2^8 = 256$ Möglichkeiten, also die Zahlen 0 bis 255. Eine ganze Adresse hat $4\cdot 8 = 32$ Bit und damit $2^{32} = 4\,294\,967\,296$ mögliche Adressen.
 
-\subsubsection{Das Dualsystem in einer Minute}
+\section{Das Dualsystem in einer Minute}
 
 Computer rechnen mit Zweierpotenzen. Jede Stelle einer Dualzahl hat einen Wert, der doppelt so groß ist wie die Stelle rechts davon:
 \begin{center}
@@ -152,7 +160,7 @@ $224$ & 1 & 1 & 1 & 0 & 0 & 0 & 0 & 0 \\
 \end{center}
 Zum Beispiel ist $130 = 128 + 2$, also steht eine 1 bei 128 und eine 1 bei 2.
 
-\subsubsection{Netz und Host: Straße und Hausnummer}
+\section{Netz und Host: Straße und Hausnummer}
 
 Eine Adresse besteht aus zwei Teilen: einem \emph{Netzteil} (die Straße) und einem \emph{Hostteil} (die Hausnummer in dieser Straße). Der Zusatz hinter dem Schrägstrich, etwa \texttt{/26}, sagt, wie viele der 32 Bit zum Netzteil gehören. Das ist die \emph{Präfixlänge}. Die übrigen Bit sind der Hostteil.
 
@@ -176,7 +184,7 @@ Präfix & Hostbits & Adressen im Netz & Subnetzmaske \\
 
 Die \emph{Subnetzmaske} ist dieselbe Information anders geschrieben: so viele Einsen von links, wie das Präfix lang ist. Bei \texttt{/26} sind das 26 Einsen, im letzten Byte \texttt{11000000}, das ist $128 + 64 = 192$.
 
-\subsubsection{Drei besondere Adressen}
+\section{Drei besondere Adressen}
 
 In jedem Netz sind einige Adressen nicht für normale Geräte frei:
 \begin{itemize}
@@ -186,7 +194,7 @@ In jedem Netz sind einige Adressen nicht für normale Geräte frei:
 \end{itemize}
 Von den Adressen eines Netzes gehen also bis zu drei für Geräte verloren. Ein \texttt{/28} hat 16 Adressen, davon sind $16 - 3 = 13$ für Geräte nutzbar.
 
-\subsubsection{Das Rezept: Wie groß muss das Netz sein?}
+\section{Das Rezept: Wie groß muss das Netz sein?}
 
 Beispiel: In der Gruppe \glqq Drucker\grqq{} stehen 12 Geräte, und es soll 25\,\% Platz für Wachstum geben (Faktor $1{,}25$).
 \begin{enumerate}
@@ -198,7 +206,7 @@ Beispiel: In der Gruppe \glqq Drucker\grqq{} stehen 12 Geräte, und es soll 25\,
 \end{enumerate}
 Probe: Ein \texttt{/27} hat 32 Adressen, davon sind $32-3 = 29$ nutzbar. Das ist mehr als 15. Ein \texttt{/28} hätte nur 13 nutzbare Adressen gehabt, zu wenig.
 
-\subsubsection{Die Schokoladentafel: Warum Zweierpotenzen?}
+\section{Die Schokoladentafel: Warum Zweierpotenzen?}
 
 Stell dir eine Schokoladentafel vor, die nur in der Mitte gebrochen werden kann. Jede Hälfte hat wieder eine Mitte, und so fort. So entstehen immer Stücke mit $1, 2, 4, 8, \dots$ Teilen, niemals Stücke mit 3 oder 5 Teilen. Genau so werden Adressbereiche geteilt (Abbildung~\ref{fig:halbierung}): Jede Halbierung erhöht das Präfix um 1.
 
@@ -246,7 +254,7 @@ Daraus folgen zwei Regeln, die der Algorithmus befolgt:
 	Die Schüler (das größte Netz) kommen zuerst: Adressen 0 bis 127. Danach folgen die Lehrer ab 128 bis 159 und die Verwaltung ab 160 bis 175. Belegt sind $128 + 32 + 16 = 176$ von 256 Adressen ($68{,}75\,\%$), frei sind die 80 Adressen \texttt{192.168.0.176/28} und \texttt{192.168.0.192/26}.
 \end{beispiel}
 
-\subsubsection{Wozu das Ganze?}
+\section{Wozu das Ganze?}
 
 \begin{itemize}
 	\item \textbf{Ordnung:} Jede Abteilung hat ihren eigenen Bereich, und man erkennt an der Adresse, wohin ein Gerät gehört.
@@ -257,7 +265,7 @@ Daraus folgen zwei Regeln, die der Algorithmus befolgt:
 
 \paragraph{Kontrollfragen.} (1) Wie viele Adressen hat ein \texttt{/29}? ($2^3 = 8$.) (2) Wie viele davon sind für Geräte nutzbar, wenn es Netzadresse, Broadcast und Gateway gibt? ($8-3=5$.) (3) Welches Präfix braucht man für 50 Geräte ohne Reserve? ($50+3 = 53 \le 64 = 2^6$, also \texttt{/26}.)
 
-\subsection{Formale Definitionen}
+\section{Formale Definitionen}
 
 Im Folgenden bezeichnet $w \in \{32, 128\}$ die Adressbreite (IPv4 beziehungsweise IPv6). Adressen werden als ganze Zahlen identifiziert.
 
@@ -331,15 +339,15 @@ Im Folgenden bezeichnet $w \in \{32, 128\}$ die Adressbreite (IPv4 beziehungswei
 	Die \emph{Zugriffsmatrix} ist die Matrix $Z \in \{0,1\}^{n\times n}$ mit $Z_{ij} = 1$ genau dann, wenn der Name von $g_j$ in $\text{acc}(g_i)$ vorkommt. Der \emph{Zugriffsgraph} ist der gerichtete Graph $G_Z = (V,E)$ mit $V = \{g_1,\ldots,g_n\}$ und $E = \{(g_i,g_j) : Z_{ij} = 1\}$ (vgl.\ die Definition der Adjazenzmatrix im Subgraph Algorithmus). Die Menge der \emph{Zugriffspaare} ist $P = \{(i,j) : Z_{ij} = 1,\ i \neq j\}$.
 \end{definition}
 
-\subsection{Grundidee}
+\section{Grundidee}
 
 Der Algorithmus basiert auf drei zentralen Konzepten.
 
-\subsubsection{Blockgrößen als Zweierpotenzen}
+\section{Blockgrößen als Zweierpotenzen}
 
 Jede Gruppe erhält den kleinsten Block, der ihren Bedarf fasst. Blöcke sind nach Lemma~\ref{lem:laminar} entweder disjunkt oder ineinander enthalten. Das macht die Überlappungsfreiheit zu einer reinen Frage der Startadressen.
 
-\subsubsection{Größte Blöcke zuerst (VLSM)}
+\section{Größte Blöcke zuerst (VLSM)}
 
 \emph{Variable Length Subnet Masks} (VLSM) bedeutet, dass Subnetze unterschiedlich groß sein dürfen. Werden die Blöcke nach absteigender Größe hintereinander gelegt, ist jede Startadresse automatisch ausgerichtet (Satz~\ref{satz:luecke}). Es entstehen keine Lücken und der Platzbedarf ist minimal (Satz~\ref{satz:kompakt}).
 
@@ -347,13 +355,13 @@ Jede Gruppe erhält den kleinsten Block, der ihren Bedarf fasst. Blöcke sind na
 	Für $n=3$ Gruppen mit Blockgrößen $32, 256, 64$ (aufsteigend in Dateireihenfolge) liefert die Sortierung die Reihenfolge $256, 64, 32$ und damit die Startadressen $0, 256, 320$. In aufsteigender Reihenfolge ($32, 64, 256$) lägen die Startadressen bei $0, 64, 256$ und der letzte Block endet erst bei $512$ statt bei $352$.
 \end{beispiel}
 
-\subsubsection{Firewall-Regeln aus der Zugriffsmatrix}
+\section{Firewall-Regeln aus der Zugriffsmatrix}
 
 Alles, was nicht ausdrücklich in \code{access} freigegeben ist, wird verworfen (Default-Deny). Jedes Zugriffspaar $(i,j) \in P$ ergibt genau eine Freigabe vom Subnetz $N_i$ in das Subnetz $N_j$ (Satz~\ref{satz:firewall}).
 
-\section{Algorithmus}
+\chapter{Algorithmus}
 
-\subsection{Algorithmus-Beschreibung}
+\section{Algorithmus-Beschreibung}
 
 Der Algorithmus arbeitet in sechs Schritten:
 
@@ -381,7 +389,7 @@ Zerlege $B \setminus \bigcup_i N_i$ in die minimale Anzahl von Blöcken.
 
 Gib den Plan als Tabelle, CSV oder JSON aus und erzeuge optional aus den Zugriffspaaren Regeln für \code{iptables}, \code{nftables} oder Cisco.
 
-\subsection{Bedarf und Präfixlänge}
+\section{Bedarf und Präfixlänge}
 
 \begin{lemma}[Bitlänge und Logarithmus]
 \label{lem:bitlen}
@@ -431,7 +439,7 @@ Die Einschränkung auf acht Nachkommastellen und $h\gamma\le10^6$ ist seit Versi
 	Zwei verschiedene Dezimalbrüche mit höchstens $15$ signifikanten Stellen unterscheiden sich relativ um mindestens $10^{-15}$, der Rundungsfehler beim Lesen als \code{float} beträgt höchstens $2^{-53} \approx 1{,}1\cdot10^{-16}$. Sie ergeben also verschiedene \code{float}-Werte. Jede Zeichenkette mit höchstens $15$ Stellen, die zum gelesenen \code{float} gehört, hat daher den Wert $\gamma$, insbesondere die kürzeste, die \code{repr} liefert. Mit $\gamma = p/q$ ist $\lceil \gamma h\rceil = \lceil ph/q\rceil = -\lfloor -ph/q\rfloor$, und \code{//} rundet in Python nach unten. Alle Schritte rechnen mit ganzen Zahlen und sind exakt.
 \end{proof}
 
-\subsection{VLAN-Vergabe}
+\section{VLAN-Vergabe}
 
 \begin{lemma}[VLAN-Vergabe]
 \label{lem:vlan}
@@ -442,7 +450,7 @@ Die Einschränkung auf acht Nachkommastellen und $h\gamma\le10^6$ ist seit Versi
 	Die Menge \code{used} enthält zu Beginn $U$ und wird um jeden vergebenen Wert erweitert. Der Kandidat $c$ startet bei $10$ und wird nur erhöht, solange $c \in \texttt{used}$. Jeder zugewiesene Wert ist deshalb nicht in \code{used}, danach aber schon, also kann er nicht ein zweites Mal vergeben werden und kollidiert nicht mit expliziten IDs: (i), (ii). Die Werte $10, 20, \ldots, 4090$ sind $(4090-10)/10 + 1 = 409$ Stück, und $c$ nimmt nur diese Werte an, solange $c \le 4094$. Da $c$ nie sinkt und jede Erhöhung einen Wert überspringt, kann $c$ höchstens $409$ verschiedene Werte durchlaufen: (iv). Findet sich kein freier Wert $\le 4094$ mehr (der nächste Kandidat $4100$ überschreitet die Grenze), bricht die Vergabe mit einem Fehler ab: (iii).
 \end{proof}
 
-\subsection{Reihenfolge und Zuteilung}
+\section{Reihenfolge und Zuteilung}
 
 Sei $\mathrm{sz}(i) = s_i$ die Blockgröße von $g_i$. Bei \code{vlsm} ist die Zuteilungsreihenfolge die Sortierung nach $(p_i,\pi_i)$ lexikographisch aufsteigend. Wegen $p_i = w - k_i$ bedeutet kleineres $p_i$ eine größere Blockgröße, die Blöcke werden also \emph{nach absteigender Größe} angeordnet, bei gleicher Größe nach aufsteigender Priorität, bei weiterer Gleichheit nach Dateireihenfolge (die Sortierung ist stabil). Bei \code{fixed} ist die Präfixlänge einheitlich $p^* = \min_i p_i$ (größter Block), und es wird nach $\pi_i$ (stabil) sortiert.
 
@@ -521,7 +529,7 @@ Sei $\mathrm{sz}(i) = s_i$ die Blockgröße von $g_i$. Bei \code{vlsm} ist die Z
 	Satz~\ref{satz:minimal} liefert $s_i < 2r_i$. Summation über $i$ liefert $S < 2\sum_i r_i$.
 \end{proof}
 
-\subsection{Freie Bereiche}
+\section{Freie Bereiche}
 \label{sec:frei}
 
 Seien $e = a_B + |B|$ das Ende des Basisnetzes (exklusiv), $F = |B| - S'$ die Zahl der freien Adressen und $c = e - F$. Bei beiden Strategien liegen die Subnetze lückenlos ab $a_B$ (Satz~\ref{satz:luecke}), der freie Bereich ist also das Suffix $[c, e)$. Wir schreiben $F = \sum_{j=1}^{m} 2^{b_j}$ mit $b_1 < \cdots < b_m$ in Binärdarstellung, also $m = \popcnt(F)$.
@@ -589,7 +597,7 @@ Seien $e = a_B + |B|$ das Ende des Basisnetzes (exklusiv), $F = |B| - S'$ die Za
 	Der Beweis von Satz~\ref{satz:pack} ist konstruktiv: Er liefert ein Verfahren \glqq größte Aufträge zuerst, jeweils lückenlos in einen freien Block\grqq, das der Ausblick (Abschnitt~\ref{sec:ausblick}) als inkrementelle Planung vorschlägt.
 \end{bemerkung}
 
-\subsection{Firewall-Regeln}
+\section{Firewall-Regeln}
 \label{sec:firewall}
 
 Für ein Zugriffspaar $(i,j) \in P$ (Definition~\ref{def:zugriff}) wird eine Freigabe vom Subnetz $N_i$ in das Subnetz $N_j$ erzeugt. Zugriff auf das eigene Subnetz benötigt keine Regel, da Verkehr innerhalb eines Subnetzes (einer Broadcast-Domäne) nicht geroutet wird.
@@ -640,11 +648,11 @@ Die erzeugte Liste für \code{iptables} und \code{nftables} ist: Regel $0$: Zust
 	Nach Lemma~\ref{lem:vlan} sind die VLAN-IDs paarweise verschieden. Der Name beginnt mit \texttt{ACL-}, es folgt die Dezimaldarstellung der VLAN-ID und ein \texttt{-}. Da die Dezimaldarstellung nur Ziffern enthält, lässt sich die ID aus dem Namen eindeutig zurücklesen. Verschiedene IDs ergeben also verschiedene Namen.
 \end{proof}
 
-\subsection{Implementierung}
+\section{Implementierung}
 
 Die Implementierung in Python gliedert sich seit Version~1.1.0 in siebzehn Module. Der Kern aus Abschnitt~3 liegt in \texttt{models.py} (Konstanten, Datenklassen, Fehlertyp \texttt{PlanError}), \texttt{config.py} (Laden und Validieren), \texttt{planner.py} (Bedarf, VLAN-Vergabe, Zuteilung), \texttt{render.py} (Tabelle, CSV, JSON), \texttt{firewall.py} (Regeln) und \texttt{cli.py} (Kommandozeile). Die Module der Erweiterungen beschreibt der letzte Teil dieses Abschnitts. Verwendet werden die Standardbibliothek (\texttt{ipaddress}, \texttt{fractions}, \texttt{csv}, \texttt{json}), \texttt{PyYAML}, \texttt{NumPy} für die Zugriffsmatrix und der Subgraph Algorithmus als Abhängigkeit (\texttt{pip install} über die \texttt{pyproject.toml}, nicht als Kopie im Projekt). Nur \texttt{policy.py} importiert ihn, und die Kommandozeile lädt dieses Modul erst bei \texttt{--compare}. Alle Datenklassen sind unveränderlich (\texttt{frozen=True}), und alle Fehler werden als \texttt{PlanError} gemeldet, die die Kommandozeile mit dem Rückgabewert $1$ und der Meldung \glqq Fehler: \dots\grqq{} auf der Fehlerausgabe beantwortet.
 
-\subsubsection{Bedarf und Präfixlänge}
+\section{Bedarf und Präfixlänge}
 
 \begin{lstlisting}[language=Python, caption={Bedarf und Präfixlänge (\texttt{planner.py})}]
 def default_overhead(gateway_position: str, version: int) -> int:
@@ -681,7 +689,7 @@ Die Funktion \code{required_addresses} berechnet $r_i = \lceil\gamma h_i\rceil +
 	Für die Gruppe \texttt{Entwicklung} ist $h=120$, $\gamma = 1{,}25$, $o = 3$. Es ist $r = 150 + 3 = 153$, $(r-1).\mathrm{bit\_length}() = 152.\mathrm{bit\_length}() = 8$, denn $152 = 10011000_2$ hat acht Stellen. Also $p = 32 - 8 = 24$.
 \end{beispiel}
 
-\subsubsection{VLAN-Vergabe}
+\section{VLAN-Vergabe}
 
 \begin{lstlisting}[language=Python, caption={Automatische VLAN-IDs (\texttt{planner.py})}]
 def assign_vlans(groups: Sequence[Group]) -> Dict[str, int]:
@@ -704,7 +712,7 @@ def assign_vlans(groups: Sequence[Group]) -> Dict[str, int]:
 
 Die Menge \code{used} enthält von Anfang an alle expliziten IDs. Dadurch kann eine automatisch vergebene ID nie mit einer expliziten kollidieren, auch wenn diese erst später in der Liste steht (Lemma~\ref{lem:vlan}).
 
-\subsubsection{Zuteilung der Subnetze}
+\section{Zuteilung der Subnetze}
 
 \begin{lstlisting}[language=Python, caption={Kern der Zuteilung (\texttt{planner.py}, Auszug)}]
     if cfg.allocation_strategy == "fixed":
@@ -737,7 +745,7 @@ Die Menge \code{used} enthält von Anfang an alle expliziten IDs. Dadurch kann e
 
 Der Code entspricht Schritt~4. Die Hilfsfunktion \code{_ordered} sortiert bei \code{fixed} nach der Priorität und bei \code{vlsm} nach (Präfixlänge, Priorität). Python-Sortierung ist stabil, daher entscheidet bei gleichem Schlüssel die Dateireihenfolge. Die Variable \code{cursor} ist der Zeiger $c$. Die Zeile \code{start = -(-cursor // size) * size} ist das Aufrunden aus Lemma~\ref{lem:align}; bei \code{vlsm} ändert sie den Zeiger nie (Satz~\ref{satz:luecke}), sie ist also eine Sicherung und kein Platzverlust. Die beiden \code{raise}-Anweisungen sind genau die Fälle A und B aus dem Beweis von Satz~\ref{satz:existenz}.
 
-\subsubsection{Freie Bereiche}
+\section{Freie Bereiche}
 
 \begin{lstlisting}[language=Python, caption={Freie Restbereiche (\texttt{blocks.py})}]
 def free_ranges_in_pool(pool: IPNetwork, occupied: Sequence[IPNetwork]) -> Tuple[IPNetwork, ...]:
@@ -757,7 +765,7 @@ def free_ranges_in_pool(pool: IPNetwork, occupied: Sequence[IPNetwork]) -> Tuple
 
 Die Funktion liegt seit Version~1.1.0 in \code{blocks.py}; \code{planner._free_ranges} ruft sie auf. Sie läuft in Adressreihenfolge über die belegten Netze und fasst jede Lücke mit \code{summarize_address_range} zu minimal vielen Blöcken zusammen. Für die Pläne des Algorithmus gibt es nur die Lücke hinter dem letzten Netz (Abschnitt~\ref{sec:frei}); die Funktion ist allgemeiner und wird in den Tests auch mit Lücken vor und zwischen Netzen geprüft.
 
-\subsubsection{Firewall-Regeln}
+\section{Firewall-Regeln}
 
 \begin{lstlisting}[language=Python, caption={Zugriffspaare und nftables-Ausgabe (\texttt{firewall.py})}]
 def _access_pairs(plan: Plan) -> Iterator[Tuple[Subnet, Subnet]]:
@@ -791,7 +799,7 @@ def render_nftables(plan: Plan) -> str:
 
 Der Generator \code{_access_pairs} erzeugt genau die Menge $P$ aus Definition~\ref{def:zugriff} (mit Wiederholungen, falls ein Ziel mehrfach genannt wird). Die ersten beiden Zeilen der \code{nftables}-Ausgabe, \code{table inet subnet_acl} und \code{delete table inet subnet_acl}, bilden einen bewährten Kniff: Die erste Zeile legt die Tabelle an, falls sie fehlt, die zweite löscht sie, sodass die Datei beim wiederholten Einspielen kein Fehler erzeugt und stets den kompletten Stand ersetzt. Die Kette hat die Standardaktion \code{policy drop}, die Regel \code{ct state established,related accept} entspricht der Regel $0$ aus Abschnitt~\ref{sec:firewall}.
 
-\subsubsection{Validierung der Konfiguration}
+\section{Validierung der Konfiguration}
 
 \begin{lstlisting}[language=Python, caption={Konsistenzprüfung der Gruppen (\texttt{config.py})}]
 def _check_groups(groups: Sequence[Group]) -> None:
@@ -819,7 +827,7 @@ def _check_groups(groups: Sequence[Group]) -> None:
 
 Die Prüfung benötigt dank der Zähler nur $O(n+a)$ statt $O(n^2)$ Zeit. Anschließend entfernt \code{clean_access} Wiederholungen und Selbstbezüge (Satz~\ref{satz:dedup}). Die Funktion \code{_check_groups} stellt sicher, dass die Voraussetzungen von Lemma~\ref{lem:vlan} (paarweise verschiedene explizite VLAN-IDs) und von Satz~\ref{satz:firewall} (jedes Zugriffsziel ist eine existierende Gruppe, sodass \code{by_name[target]} nie fehlschlägt) erfüllt sind. Die Namensprüfung mit dem regulären Ausdruck \texttt{\^{}[\textbackslash w\textbackslash -\ ]+\$} verhindert, dass Sonderzeichen in Firewall-Kommentare oder ACL-Namen gelangen.
 
-\subsubsection{Module der Erweiterungen}
+\section{Module der Erweiterungen}
 \label{sec:module}
 
 Die Erweiterungen aus Abschnitt~\ref{sec:ausblick} liegen in eigenen Modulen, sodass der Kern aus diesem Abschnitt unverändert bleibt. Für Pläne mit einem Pool und ohne Bestand läuft weiterhin genau der Algorithmus aus Abschnitt~3 (\code{_plan_simple}); nur bei \code{existing}, \code{pools} oder festen Netzen (\code{network}) übernimmt \code{_plan_general}, bei Standorten (\code{site}) \code{plan_hierarchical}. So bleiben die Sätze~\ref{satz:luecke} und \ref{satz:kompakt} für den Normalfall gültig.
@@ -847,9 +855,9 @@ Modul & Aufgabe \\
 
 Die Firewall-Optionen sind in der Datenklasse \code{FirewallOptions} gebündelt (\code{idempotent}, \code{group_rules}, \code{cisco_return}, \code{ascii_names}, \code{log_drops}, \code{icmpv6_types}); die Kommandozeile bildet sie auf \texttt{--no-idempotent}, \texttt{--group-rules}, \texttt{--cisco-return}, \texttt{--ascii-names}, \texttt{--log-drops} und \texttt{--icmpv6} ab. Berichte (\texttt{--verify}, \texttt{--roundtrip}, \texttt{--warnings}, \texttt{--stats}, \texttt{--compare}) gehen auf die Fehlerausgabe, damit die Standardausgabe maschinenlesbar bleibt; eine fehlgeschlagene Prüfung ergibt den Rückgabewert $1$.
 
-\section{Analyse}
+\chapter{Analyse}
 
-\subsection{Laufzeit}
+\section{Laufzeit}
 
 Im Folgenden sei $n$ die Zahl der Gruppen und $a$ die Gesamtzahl der Einträge in allen \code{access}-Listen. Operationen auf ganzen Zahlen der Breite $w\le128$ zählen als Einheitskosten.
 
@@ -880,7 +888,7 @@ Im Folgenden sei $n$ die Zahl der Gruppen und $a$ die Gesamtzahl der Einträge i
 	Bei \code{access}-Listen ohne Wiederholungen ist $a \le n(n-1)$. Im ungünstigsten Fall ist $a = \Theta(n^2)$, und die Cisco-Ausgabe ist dann kubisch, obwohl ihre Ausgabegröße nur $\Theta(n + a)$ beträgt. Beide quadratischen Stellen (Validierung und Cisco) sind leicht zu beseitigen (Abschnitt~\ref{sec:ausblick}).
 \end{bemerkung}
 
-\subsection{Optimalität des Kerns}
+\section{Optimalität des Kerns}
 
 Wir zeigen, dass die Sortierung im Kern nicht vermeidbar ist und die Größe der Ausgabe eine weitere untere Schranke ist. Dazu betrachten wir das \emph{Vergleichsmodell}: Die Prioritäten $\pi_i$ dürfen nur durch Vergleiche (kleiner, gleich, größer) benutzt werden.
 
@@ -910,15 +918,15 @@ Wir zeigen, dass die Sortierung im Kern nicht vermeidbar ist und die Größe der
 	Die Schranke ist modellabhängig. Sind die Prioritäten ganze Zahlen aus $\{0,\ldots,\Pi\}$, so sortiert Zählsortierung in $O(n + \Pi)$, und die untere Schranke $\Omega(n\log n)$ des Vergleichsmodells gilt nicht. Unbedingt (ohne Modellannahme) gilt nur die lineare Schranke durch die Ausgabegröße.
 \end{bemerkung}
 
-\subsection{Speicher}
+\section{Speicher}
 
 Die Konfiguration benötigt $O(n + a)$ Speicher, der Plan $O(n + \min(w, \popcnt(F)))$, nämlich $n$ Subnetze und höchstens $w - p_B$ freie Blöcke (Satz~\ref{satz:frei}). Bei einem IPv6-Basisnetz \texttt{/48} sind das bis zu $80$ freie Blöcke, bei IPv4 \texttt{/16} höchstens $16$.
 
-\subsection{Alternative: Buddy-System}
+\section{Alternative: Buddy-System}
 
 Eine Alternative zur sortierten Zuteilung ist ein binärer Baum über dem Adressraum (ein \emph{Buddy-System}): Jede Anforderung sucht den kleinsten freien Block ausreichender Größe, teilt ihn bei Bedarf und gibt Blöcke wieder zusammen frei. Jede Operation kostet $O(w)$, und das Verfahren unterstützt Anlegen und Löschen im laufenden Betrieb. Für die einmalige Planung aller Gruppen ist die Sortierung mit $O(n\log n)$ einfacher und nach Satz~\ref{satz:kompakt} bereits optimal. Das Buddy-System bietet sich für die in Abschnitt~\ref{sec:ausblick} beschriebene inkrementelle Planung an; der Beweis von Satz~\ref{satz:pack} zeigt, dass das Verfahren \glqq größte Anforderung zuerst\grqq{} dabei ohne Kapazitätsverlust arbeitet.
 
-\subsection{Gesamtkorrektheit}
+\section{Gesamtkorrektheit}
 
 \begin{satz}[Korrektheit]
 \label{satz:gesamt}
@@ -933,7 +941,7 @@ Eine Alternative zur sortierten Zuteilung ist ein binärer Baum über dem Adress
 	\emph{Terminierung.} Alle Schleifen laufen über endliche Listen, die einzige \code{while}-Schleife in \code{assign_vlans} erhöht den Kandidaten höchstens $409$-mal (Lemma~\ref{lem:vlan} (iv)). \emph{Ergebnis.} Tritt kein Fehler auf, gelten (K1) bis (K6) nach Satz~\ref{satz:korrekt}, die VLAN-Aussage nach Lemma~\ref{lem:vlan}, die Aussage über freie Bereiche nach Satz~\ref{satz:frei} und die Firewall-Aussage nach Satz~\ref{satz:firewall}. Tritt ein Platzmangel-Fehler auf, folgt die Aussage aus Satz~\ref{satz:existenz}.
 \end{proof}
 
-\subsection{Experimentelle Überprüfung}
+\section{Experimentelle Überprüfung}
 \label{sec:tests}
 
 Die Testsuite der Version~1.0.0 umfasste $127$ Tests und erreichte laut Bericht $100\,\%$ Zeilen- und Zweigabdeckung für alle Module (\texttt{cli.py}: $54$ Anweisungen, \texttt{config.py}: $96$, \texttt{firewall.py}: $47$, \texttt{models.py}: $68$, \texttt{planner.py}: $84$, \texttt{render.py}: $35$; zusammen $384$ Anweisungen und $108$ Zweige). Version~1.1.0 umfasst $247$ Tests; neu sind Testdateien für Blockalgebra, Zugriff und Semantik, Bestandsplanung, Hierarchie und Erweiterung, Firewall-Optionen mit Rückübersetzung, Prüfung, Statistik und Warnungen, Richtlinienvergleich, die erweiterte Kommandozeile sowie seeded Zufallstests der Sätze (\texttt{tests/test\_properties.py}). Eine Ersatzmessung ohne \texttt{coverage.py} (Zeilen- und Verzweigungsaufzeichnung mit \code{sys.settrace}, Anweisungen mit \code{# pragma: no cover} ausgenommen) fand alle $1\,652$ ausführbaren Anweisungen ausgeführt und jede verzweigende Anweisung in beiden Richtungen durchlaufen; maßgeblich bleibt der Bericht von \code{pytest --cov}. Einzelne Tests prüfen unmittelbar die Aussagen dieser Arbeit:
@@ -1025,14 +1033,14 @@ Beim Schreiben der Tests fiel ein Fehler auf, den die Beweise nicht ausschließe
 
 \lstdefinelanguage{yaml}{morecomment=[l]{\#}, sensitive=true}
 
-\section{Verwendungsbeispiele}
+\chapter{Verwendungsbeispiele}
 
-\subsection{Das Konfigurationsbeispiel im Detail}
+\section{Das Konfigurationsbeispiel im Detail}
 \label{sec:konfig}
 
 Die Datei \texttt{examples/config.example.yaml} beschreibt ein fiktives Firmennetz. Sie ist Vorlage, Referenz (jeder Schlüssel kommt mindestens einmal vor) und Testgrundlage (\texttt{test\_example\_configuration\_is\_valid}).
 
-\subsubsection{Die Datei}
+\section{Die Datei}
 
 \begin{lstlisting}[language=yaml, caption={\texttt{examples/config.example.yaml}}]
 # Beispielkonfiguration für subnetplan
@@ -1063,11 +1071,11 @@ groups:
     hosts: 60                   # kein access: keine internen Ziele
 \end{lstlisting}
 
-\subsubsection{YAML in zwei Minuten}
+\section{YAML in zwei Minuten}
 
 YAML ist ein Textformat für Einstellungen. Zeilen der Form \texttt{schluessel: wert} sind Einstellungen. Ein \texttt{\#} beginnt einen Kommentar, den das Programm ignoriert. Ein Bindestrich \texttt{-} am Zeilenanfang beginnt ein neues Listenelement; hier ist jedes Element eine Gruppe. Eingerückte Zeilen gehören zum darüberstehenden Element. Eckige Klammern wie in \texttt{[Server, Drucker]} schreiben eine kurze Liste in eine Zeile. Es dürfen nur Leerzeichen zum Einrücken verwendet werden, keine Tabulatoren.
 
-\subsubsection{Die vier Kopfzeilen}
+\section{Die vier Kopfzeilen}
 
 \begin{center}
 \small
@@ -1083,7 +1091,7 @@ Schlüssel & Wert im Beispiel & Bedeutung \\
 \end{tabularx}
 \end{center}
 
-\subsubsection{Die fünf Gruppen}
+\section{Die fünf Gruppen}
 
 \begin{center}
 \small
@@ -1102,7 +1110,7 @@ Gruppe & Hosts & \texttt{access} (darf zugreifen auf) & Besonderheit \\
 
 \texttt{access} ist eine Erlaubnisliste und gilt nur in eine Richtung: \texttt{Entwicklung} darf auf \texttt{Server} zugreifen, \texttt{Server} aber nicht auf \texttt{Entwicklung}. Dass \texttt{Drucker} und \texttt{Gäste} keine \texttt{access}-Zeile haben, heißt: Sie bauen keine Verbindungen in andere Netze auf.
 
-\subsubsection{Schritt 1: Bedarf und Präfixlänge}
+\section{Schritt 1: Bedarf und Präfixlänge}
 
 Das Programm rechnet je Gruppe $r = \lceil 1{,}25\,h\rceil + 3$ (drei Sonderadressen: Netz, Broadcast, Gateway) und sucht die kleinste Zweierpotenz $s \ge r$:
 
@@ -1123,7 +1131,7 @@ Drucker & 12 & 15 & 18 & 5 & 32 & \texttt{/27} \\
 
 Bei \texttt{HR} ist $25\cdot1{,}25 = 31{,}25$, aufgerundet $32$. Die Summe der Blockgrößen ist $S = 256+128+64+64+32 = 544 \le 65\,536$, der Plan ist also nach Satz~\ref{satz:existenz} möglich. Zum Vergleich: Die Summe der Bedarfe ist $\sum r_i = 153+78+53+35+18 = 337$; die Blöcke belegen nach Satz~\ref{satz:verschnitt} weniger als das Doppelte davon ($544/337 \approx 1{,}61$).
 
-\subsubsection{Schritt 2: Reihenfolge}
+\section{Schritt 2: Reihenfolge}
 
 \begin{center}
 \small
@@ -1147,7 +1155,7 @@ Sortiert wird zuerst nach dem Präfix (kleiner heißt größerer Block, also fr�
 	\item Die Reihenfolge der Gruppen in der Datei ist sonst bedeutungslos. Sie wirkt nur als letzter Tie-Breaker und bei der automatischen VLAN-Vergabe.
 \end{itemize}
 
-\subsubsection{Schritt 3: Der Zeiger}
+\section{Schritt 3: Der Zeiger}
 
 Die Adresse $10.20.0.0$ entspricht der Zahl $a_B = 10\cdot2^{24} + 20\cdot2^{16} = 169\,082\,880$. Der Zeiger $c$ wandert, in Adressen ab $a_B$ gerechnet, so:
 
@@ -1169,11 +1177,11 @@ Drucker & 512 & 32 & \texttt{10.20.2.0} \\
 
 Jeder Start ist durch die Blockgröße teilbar ($384 = 6\cdot 64$, $448 = 7\cdot 64$, $512 = 16\cdot 32$): Das ist die Lückenlosigkeit aus Satz~\ref{satz:luecke} an einem Beispiel, es wird nie aufgerundet.
 
-\subsubsection{Schritt 4: VLAN-IDs}
+\section{Schritt 4: VLAN-IDs}
 
 \texttt{Server} behält die feste ID $100$. Alle anderen erhalten in Dateireihenfolge die kleinsten freien Werte aus $10,20,30,\ldots$: \texttt{Entwicklung} $10$, \texttt{HR} $20$, \texttt{Drucker} $30$, \texttt{Gäste} $40$. Die Zahl $100$ wird dabei übersprungen, falls sie später an der Reihe wäre (Lemma~\ref{lem:vlan}).
 
-\subsubsection{Das Ergebnis}
+\section{Das Ergebnis}
 
 Der Aufruf \texttt{subnetplan examples/config.example.yaml} gibt aus:
 
@@ -1216,21 +1224,21 @@ Freie Bereiche: 10.20.2.32/27, 10.20.2.64/26, 10.20.2.128/25, 10.20.3.0/24, 10.2
 \label{fig:belegung}
 \end{figure}
 
-\subsubsection{Nutzbar, Bedarf und Reserve}
+\section{Nutzbar, Bedarf und Reserve}
 
 Die Spalte \glqq Nutzbar\grqq{} liegt immer über dem Bedarf, weil Blockgrößen Zweierpotenzen sind und weil die Wachstumsreserve eingerechnet ist. Für \texttt{Entwicklung} sind $253 = 256 - 3$ Adressen nutzbar (Lemma~\ref{lem:usable}); davon werden zunächst $120$ gebraucht, $133$ sind Reserve. Entsprechend: \texttt{Gäste} $125-60 = 65$, \texttt{Server} $61-40 = 21$, \texttt{HR} $61-25 = 36$, \texttt{Drucker} $29-12 = 17$.
 
-\subsubsection{Ein Blick in die Binärdarstellung}
+\section{Ein Blick in die Binärdarstellung}
 
 Das Netz \texttt{10.20.1.128/26} hat im letzten Byte die Bits $\texttt{10}\,|\,\texttt{000000}$: Die ersten beiden Bit (\texttt{10}) gehören zum Netzteil, die sechs übrigen zur Hausnummer. \texttt{HR} (\texttt{10.20.1.192/26}) hat im letzten Byte $\texttt{11}\,|\,\texttt{000000}$. Beide \texttt{/26}-Netze sind also die beiden Hälften des \texttt{/25}-Netzes \texttt{10.20.1.128/25} (Lemma~\ref{lem:laminar}, Abbildung~\ref{fig:halbierung}), und \texttt{Gäste} \texttt{10.20.1.0/25} ist die andere Hälfte der Zeile \texttt{10.20.1.x}.
 
-\subsubsection{Freie Bereiche und Wachstum}
+\section{Freie Bereiche und Wachstum}
 
 Belegt sind $544$ von $65\,536$ Adressen ($0{,}83\,\%$), frei sind $64\,992$. Die zehn freien Bereiche sind nach Satz~\ref{satz:frei} die Binärdarstellung von $64\,992$ (Beispiel in Abschnitt~\ref{sec:frei}).
 
 Angenommen, eine neue Gruppe \texttt{Labor} mit $100$ Hosts kommt hinzu: $r = 125 + 3 = 128$, also ein \texttt{/25}. Nach Korollar~\ref{kor:erweiterung} passt sie, ohne bestehende Netze zu verschieben, denn $128 \le 64\,992$. Der Beweis zeigt auch wohin: in den kleinsten ausreichend großen freien Block, das ist \texttt{10.20.2.128/25}. Plant man dagegen alles \emph{neu} (Gruppe \texttt{Labor} an die Datei anhängen und \texttt{subnetplan} laufen lassen), so erhält \texttt{Labor} das Netz \texttt{10.20.1.128/25}, und \texttt{Server}, \texttt{HR} und \texttt{Drucker} wandern nach \texttt{10.20.2.0/26}, \texttt{10.20.2.64/26} und \texttt{10.20.2.128/27}: Das Ergebnis ist gleich gut (gleicher Platzbedarf), aber bestehende Geräte müssten umnummeriert werden. Das Programm plant derzeit immer neu; die inkrementelle Variante ist ein Ausblick.
 
-\subsubsection{Die Firewall-Regeln}
+\section{Die Firewall-Regeln}
 
 Aus den \texttt{access}-Einträgen ergeben sich genau vier Zugriffspaare:
 \begin{align*}
@@ -1312,7 +1320,7 @@ interface Vlan30
 
 Die ACL von \texttt{Gäste} (\texttt{ACL-40-GÄSTE}) und die von \texttt{Drucker} enthalten nur \texttt{deny ip any any}. Nach Satz~\ref{satz:cisco} sind Cisco-ACLs zustandslos: Die Antwort des \texttt{Drucker}s an \texttt{Entwicklung} tritt am Interface \texttt{Vlan30} ein und wird dort verworfen. Damit Verbindungen zustande kommen, muss der Rückverkehr von Hand ergänzt werden (Ausblick).
 
-\subsubsection{Varianten ohne Bearbeiten der Datei}
+\section{Varianten ohne Bearbeiten der Datei}
 
 \begin{itemize}
 	\item \texttt{--strategy fixed}: Alle Gruppen bekommen die Größe der größten (\texttt{/24}), die Reihenfolge folgt nur der Priorität und der Datei: \texttt{Server} \texttt{10.20.0.0/24}, \texttt{Entwicklung} \texttt{10.20.1.0/24}, \texttt{HR} \texttt{10.20.2.0/24}, \texttt{Drucker} \texttt{10.20.3.0/24}, \texttt{Gäste} \texttt{10.20.4.0/24}. Belegt sind $5\cdot256 = 1280$ statt $544$ Adressen; der Mehrverbrauch ist $W = 1280 - 544 = 736$ (Satz~\ref{satz:fixed}).
@@ -1321,7 +1329,7 @@ Die ACL von \texttt{Gäste} (\texttt{ACL-40-GÄSTE}) und die von \texttt{Drucker
 	\item \texttt{--format json -o plan.json} oder \texttt{--format csv -o plan.csv}: maschinenlesbare Ausgabe zur Weiterverarbeitung.
 \end{itemize}
 
-\subsubsection{Typische Fehler}
+\section{Typische Fehler}
 
 Fehler werden gemeldet, ohne dass ein Plan ausgegeben wird (Rückgabewert $1$):
 \begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize]
@@ -1333,7 +1341,7 @@ Doppelte VLAN-IDs: [5]
 \end{lstlisting}
 Die zweite Meldung entsteht, wenn man das Beispiel auf ein \texttt{/24} verkleinert: $256 + 128 > 256$ (Satz~\ref{satz:existenz}).
 
-\subsubsection{Eigene Konfiguration ableiten}
+\section{Eigene Konfiguration ableiten}
 
 \begin{enumerate}
 	\item Datei kopieren, zum Beispiel mit \texttt{cp} nach \texttt{mein-netz.yaml}.
@@ -1343,9 +1351,9 @@ Die zweite Meldung entsteht, wenn man das Beispiel auf ein \texttt{/24} verklein
 	\item \texttt{subnetplan mein-netz.yaml} ausführen und das Ergebnis prüfen, bevor Regeln eingespielt werden.
 \end{enumerate}
 
-\subsection{Weitere Code-Beispiele}
+\section{Weitere Code-Beispiele}
 
-\subsubsection{Maschinenlesbare Ausgabe}
+\section{Maschinenlesbare Ausgabe}
 
 \begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize, caption={Auszug der CSV-Ausgabe (\texttt{--format csv})}]
 group,vlan_id,network,netmask,gateway,first_host,last_host,broadcast,usable_hosts,requested_hosts,access
@@ -1357,7 +1365,7 @@ Die JSON-Ausgabe (\texttt{--format json}) enthält zusätzlich die Kennzahlen de
 
 Zusammen mit \texttt{--firewall} muss bei \texttt{--format json} oder \texttt{csv} eine Ausgabedatei (\texttt{-o} oder \texttt{--firewall-output}) angegeben werden, damit die Standardausgabe maschinenlesbar bleibt; andernfalls meldet das Programm einen Fehler.
 
-\subsubsection{Verwendung als Python-Bibliothek}
+\section{Verwendung als Python-Bibliothek}
 
 \begin{lstlisting}[language=Python, caption={Planung aus Python heraus}]
 from src.config import build_config, load_config_file
@@ -1375,15 +1383,100 @@ print(render_firewall(plan, "iptables"))
 
 Die Ausgabe beginnt mit den fünf Zeilen \texttt{Entwicklung 10.20.0.0/24 253}, \texttt{Gäste 10.20.1.0/25 125}, \texttt{Server 10.20.1.128/26 61}, \texttt{HR 10.20.1.192/26 61}, \texttt{Drucker 10.20.2.0/27 29}, danach folgt \texttt{544 64992 0.83} und das iptables-Skript. Nach \texttt{pip install -e .} lautet der Paketname \texttt{subnetplan} statt \texttt{src}.
 
-\subsubsection{IPv6}
+\section{IPv6}
 
 Für \texttt{base\_network: 2001:db8:abcd::/48} mit \texttt{Entwicklung} (120 Hosts) und \texttt{Drucker} (12 Hosts) entstehen \texttt{2001:db8:abcd::/120} (Gateway \texttt{2001:db8:abcd::1}, $254$ nutzbar) und \texttt{2001:db8:abcd::100/123} ($30$ nutzbar). Es gibt keine Broadcast-Adresse ($o = 2$ statt $3$): $r = 150 + 2 = 152$ liefert $k = 8$, also \texttt{/120}. Die freien Bereiche bestehen hier aus vielen Blöcken, bis zu $128 - 48 = 80$ (Satz~\ref{satz:frei}). Das Ergebnis ist mathematisch korrekt, entspricht aber nicht der Betriebspraxis, in der jedes IPv6-Subnetz ein \texttt{/64} ist \cite{rfc7421}; der Ausblick behandelt dies (Satz~\ref{satz:robust}).
 
-\subsubsection{Wiederholte Zugriffsziele}
+\section{Wiederholte Zugriffsziele}
 
 Steht in \texttt{access} ein Ziel doppelt (\texttt{access: [B, B]}), erzeugt der Generator die Freigabe doppelt. Das ist harmlos, weil das Urteil nur von der Menge $P$ abhängt (Satz~\ref{satz:firewall}), aber unnötig; Satz~\ref{satz:dedup} behandelt die Bereinigung.
 
-\section{Zusammenfassung}
+\chapter{Experimentelle Ergebnisse}
+\label{sec:experimentelle-ergebnisse}
+
+\experimenthardware
+
+Dieses Kapitel wertet den Lauf des Experimentprogramms \texttt{src/experiments.py} vom 19.~Oktober~2026 aus. Die Experimente ergänzen die Beweise und die zuvor beschriebenen Tests: Sie prüfen ausgewählte Aussagen an endlich vielen reproduzierbaren Zufallseingaben und messen Größen, die sich nicht allein aus Korrektheitssätzen ergeben, etwa Laufzeit, Auslastung und Länge erzeugter Firewall-Regeln. Ein bestandener Versuch ist daher eine empirische Bestätigung für die verwendeten Eingaben, kein Beweis für alle möglichen Konfigurationen.
+
+\section{Versuchsaufbau und Reproduzierbarkeit}
+
+Der vollständige Lauf verwendete den Startwert $2026$ und die im Programm als Standard festgelegten Stichprobengrößen. Jeder Versuch erhält einen eigenen Zufallszahlengenerator, dessen Startwert aus dem globalen Seed und dem Namen des Experiments gebildet wird. Damit bleiben die Eingaben bei Wiederholung mit gleichem Programmstand, Seed und Umfang reproduzierbar; die Laufzeiten sind wegen Betriebssystem- und Prozesszustand nicht deterministisch. Die Zusammenfassung dokumentiert Python~3.13.16, Windows~11 (Plattformkennung \texttt{10.0.26300}), Start- und Endzeit sowie den Seed. Insgesamt dauerte der Lauf rund $40{,}09$ Sekunden.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{3cm}Xr r@{}}
+\toprule
+Experiment & Umfang laut Runner & Dauer & Urteil \\
+\midrule
+Laufzeit & geplant bis $n=5000$, je drei Messungen & $0{,}38$ s & Fehler \\
+Auslastung & $4000$ Pläne & $5{,}18$ s & bestanden \\
+Wachstumsfaktor & $200000$ Arithmetikproben, elf Faktorwerte & $2{,}67$ s & bestanden \\
+Packbarkeit & $4000$ Fälle & $0{,}41$ s & bestanden \\
+Erweiterung & $1500$ Pläne & $1{,}46$ s & bestanden \\
+Regelgruppierung & $40$ Pläne je Kombination aus $n$ und Dichte & $23{,}48$ s & bestanden \\
+Rückübersetzung & $3600$ Prüfungen & $1{,}14$ s & bestanden \\
+Hierarchie & $1000$ Pläne & $1{,}53$ s & bestanden \\
+Verdopplung & $300$ Pläne & $0{,}44$ s & bestanden \\
+IPv6 & geplant bis $n=2000$, zusätzlich $100$ Pläne & $0{,}02$ s & Fehler \\
+Policy & $6000$ Paare ($3000$ enthalten, $3000$ unabhängig) & $3{,}24$ s & bestanden \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Neun der elf Einträge wurden als bestanden markiert. Der Gesamtlauf selbst endete dennoch mit \texttt{all\_passed = false}, da Laufzeit- und IPv6-Experiment eine Ausnahme auslösten. Die Laufzeiten in der Tabelle messen die Dauer des jeweiligen Experiments einschließlich der Erzeugung und Prüfung seiner Testfälle, nicht nur die Laufzeit des Planungsalgorithmus. Insbesondere ist die Gruppierungsmessung mit rund $23{,}48$ Sekunden der teuerste Versuch; ihr Ergebnis ist eine Ausgabegrößenmessung und kein Laufzeitbenchmark des Planers.
+
+\section{Adressbedarf, Auslastung und Packbarkeit}
+
+\paragraph{Auslastung von VLSM und festen Präfixen.}
+Für $4000$ zufällig erzeugte Pläne mit logarithmisch verteilten Hostzahlen wurden $27933$ einzelne Blockauslastungen $u=r/s$ erfasst. Ihr Mittelwert beträgt $0{,}7391$ (Median $0{,}7344$), gegenüber dem theoretischen Erwartungswert $0{,}7213$. Die Abweichung von $0{,}0178$ entspricht etwa $1{,}78$ Prozentpunkten und liegt unter der im Experiment verwendeten Toleranz von drei Prozentpunkten. Eine unabhängige Monte-Carlo-Referenzrechnung meldet $0{,}7204$ und liegt damit nahe am theoretischen Wert. Die beobachtete minimale Auslastung ist $0{,}50024$; kein Block lag bei oder unter der im Satz zum Verschnitt ausgeschlossenen Grenze $1/2$. Zusammen mit null Fehlern des Planverifikators und $4000/4000$ Treffern der Formel für den Mehrverbrauch fester Präfixe stützt dies die erwarteten Aussagen.
+
+Die Gegenüberstellung von \code{vlsm} und \code{fixed} quantifiziert den Einfluss stark unterschiedlicher Gruppengrößen: Der Quotient aus der bei fester Präfixlänge belegten und der bei VLSM belegten Adresszahl lag im Mittel bei $3{,}658$ und im Median bei $3{,}459$. Im ungünstigsten beobachteten Plan war der feste Plan um den Faktor $10{,}63$ größer; in einzelnen Fällen waren beide Strategien gleich groß. Das ist kein universeller Faktor für beliebige Konfigurationen, sondern die Verteilung der hier erzeugten Stichprobe. In allen $4000$ Fällen entsprach der zusätzliche Verbrauch exakt der im Code geprüften Formel \code{fixed\_extra\_waste}.
+
+\paragraph{Wachstumsfaktor und exakte Arithmetik.}
+Der Faktorsweep betrachtet ein festes Fünf-Gruppen-Beispiel mit Faktoren von $1{,}0$ bis $2{,}0$ in Schritten von $0{,}1$. Die belegte Blocksumme ist nicht stetig: Sie steigt von $304$ Adressen bei $1{,}0$ auf $512$ bei $1{,}1$, $544$ bei $1{,}2$ und $608$ bei $1{,}6$. Dazwischen bleibt sie konstant. Ursache sind die diskreten Blockgrößen als Zweierpotenzen: Ein kleiner Mehrbedarf ändert die Zuteilung erst dann, wenn eine Gruppe die Kapazität ihres bisherigen Blocks überschreitet; dann kann der zugeteilte Block sprunghaft auf die nächste Größe anwachsen. Ein größerer Wachstumsfaktor garantiert daher nicht in jedem einzelnen Schritt eine höhere Gesamtauslastung. Im Beispiel mit Faktor $1{,}25$ werden $544$ Adressen belegt, also $0{,}83\,\%$ des \texttt{/16}-Basisnetzes.
+
+Zusätzlich wurden $200000$ Paare aus Hostzahl und Faktor im Bereich $0{,}1$ bis $2{,}0$ mit einer dezimalen Referenz verglichen. Werte unter $1$ sind keine gültigen Konfigurationswerte für den Wachstumsfaktor; sie prüfen hier ausschließlich die Arithmetikfunktion. Die direkte Rechnung mit binärer Fließkommaarithmetik und anschließender Aufrundung wich in $48$ Fällen um eine Adresse ab. Die untersuchte gerundete Fließkommavariante und die exakte Implementierung wichen in keiner Stichprobe ab. Die Null-Abweichungen sind keine Aussage über alle reellen Zahlen; sie belegen für diesen Eingabebereich aber, warum die Implementierung die Dezimalzahl kontrolliert und nicht unkritisch ein binäres Fließkommaergebnis aufrundet.
+
+\paragraph{Packbarkeitskriterium.}
+In $4000$ kleinen Adressräumen mit jeweils $32$ Adressen wurde die schnelle Packbarkeitsprüfung mit einer unabhängigen vollständigen Backtracking-Suche verglichen. Beide Verfahren stimmten in allen $4000$ Fällen überein. In $2686$ Fällen meldete die Prüfung die Aufträge als packbar; anschließend waren sämtliche konstruktiv erzeugten Zuteilungen innerhalb der freien Blöcke und paarweise überlappungsfrei ($2686/2686$). Das ist ein besonders aussagekräftiger Test für die notwendige und hinreichende Bedingung, weil die Referenzsuche nicht dieselbe schnelle Entscheidungsroutine wiederverwendet. Die Schlussfolgerung bleibt dennoch auf das getestete Universum und die dort generierten Blockgrößen beschränkt.
+
+\section{Erweiterung und hierarchische Planung}
+
+\paragraph{Inkrementelle Erweiterung.}
+Für $1500$ vorhandene Pläne wurde jeweils eine neue Gruppe angefordert. Die Vorhersage anhand der gesamten freien Adresszahl stimmte in allen Fällen mit dem tatsächlichen Erfolg oder der Zurückweisung überein. $1226$ Erweiterungen gelangen; in allen diesen Fällen blieben sämtliche vorhandenen Subnetze unverändert und der erweiterte Plan bestand die Verifikation. Die übrigen $274$ Anforderungen passten nicht. Das Experiment bestätigt somit nicht bloß, dass genügend Platz in den erfolgreichen Fällen vorhanden war, sondern auch, dass die verwendete Kapazitätsbedingung die beobachtete Grenze korrekt vorhersagte.
+
+\paragraph{Standortblöcke und Routenaggregation.}
+In $1000$ Plänen mit zwei bis sechs Standorten hielten alle Pläne die geprüften Schranken für Standortblöcke ein und bestanden die Planverifikation. Die Summe der Standortblockgrößen geteilt durch die Summe der Gruppenblockgrößen lag im Mittel bei $1{,}487$ (Median $1{,}516$; Maximum $1{,}959$). Der Standortzuschnitt kostet damit in diesen Zufallsplänen zusätzliche reservierte Adressen, blieb aber stets unter dem im Experiment geprüften Faktor $2$.
+
+Das Verhältnis der Zahl aggregierter Standortpräfixe zur Zahl einzelner Gruppenpräfixe lag im Mittel bei $0{,}402$ und im Median bei $0{,}333$. In der Stichprobe waren damit im Mittel ungefähr $60\,\%$ weniger Standort-Routen als Gruppen-Routen nötig. Die Spannweite von $0{,}1$ bis $1{,}0$ ist für die Interpretation wichtig: Bei günstiger Adresslage lassen sich viele Gruppen zu wenigen Routen zusammenfassen; im schlechtesten beobachteten Fall entsteht keine Reduktion. Der Messwert beschreibt die erzeugten Pläne, nicht die Zahl tatsächlich benötigter Routen in einem konkreten Netzbetrieb.
+
+\paragraph{Verdopplung an Ort und Stelle.}
+Über $300$ Pläne wurden $1336$ Gruppen geprüft. Eine Verdopplung war für $213$ Gruppen möglich: $68$ bei Gateway-Position \code{first}, $71$ bei \code{last} und $74$ bei \code{none}. Alle erfolgreichen Operationen lieferten gültige Pläne und erhielten die VLAN-ID; alle nicht zulässigen Operationen wurden abgewiesen. Bei \code{first} und \code{none} änderte sich bei keiner erfolgreichen Verdopplung die Hostadressierung. Bei \code{last} wurde erwartungsgemäß in allen $71$ Fällen genau eine Hostadresse umnummeriert, weil sich durch die Vergrößerung die Lage der letzten Gateway-Adresse ändert. Das Ergebnis macht die Betriebsbedingung sichtbar: \code{last} kann eine minimale Umnummerierung erfordern, während die beiden anderen geprüften Gateway-Positionen sie vermeiden.
+
+\section{Firewall-Regeln und Richtlinien}
+
+\paragraph{Gruppierung und Ausgabegröße.}
+Der Gruppierungsversuch erzeugte $600$ Pläne: $n\in\{10,30,100\}$, fünf Zugriffsdichten und jeweils $40$ Wiederholungen. Für alle Konfigurationen entsprach die durch gruppierte Regeln dargestellte Paarmenge exakt der ursprünglichen Zugriffsmatrix. Die Anzahl der Regelgruppen blieb in jeder Messzelle höchstens $n$. Der Anteil der Regelgruppen an den Zugriffspaaren sinkt bei $n=100$ von rund $20{,}1\,\%$ bei Dichte $0{,}05$ auf rund $1{,}12\,\%$ bei Dichte $0{,}9$: Je dichter die Matrix, desto mehr einzelne Paare kann eine gemeinsame Zielmenge abdecken.
+
+Die Zeilenzahl hängt jedoch stark vom Ausgabeformat ab. Bei $n=100$ und Dichte $0{,}9$ sank die mittlere nftables-Ausgabe von $8921$ auf $109$ Zeilen (etwa $98{,}8\,\%$ weniger). Cisco sank von $18227$ auf $9614$ Zeilen (etwa $47{,}3\,\%$ weniger). Die gruppierte iptables-Ausgabe stieg dagegen von $8921$ auf $9521$ Zeilen (etwa $6{,}7\,\%$ mehr). Bei geringer Dichte ($n=100$, $0{,}05$) stieg sie sogar von $504$ auf $1101$ Zeilen. Die Option ist somit semantisch korrekt, aber nicht für jeden Renderer eine Komprimierung: nftables kann Mengen kompakt ausdrücken, während andere Darstellungen gruppierte Quell- und Zielmengen in zusätzliche Einzelzeilen expandieren können. Vor einer produktiven Aktivierung sollte daher die konkrete Ausgabedatei des Ziel-Backends betrachtet werden.
+
+\paragraph{Rückübersetzung.}
+Der Rückübersetzungstest prüfte je $300$ zufällig erzeugte Pläne für IPv4 und IPv6, drei Firewall-Formate (iptables, nftables und Cisco) und zwei Optionssätze (Standard sowie alle getesteten Optionen). Insgesamt wurden $3600$ Konstellationen geprüft; in jeder einzelnen ergab das Zurücklesen der Regeln wieder exakt die ursprüngliche Zugriffspaarmenge ($3600/3600$). Damit sind Generator und Parser über diese Plattformen und Optionen hinweg konsistent. Es bleibt ein Konsistenztest: Ein Fehler, den Erzeuger und Rückübersetzer gemeinsam machen, kann dadurch allein unentdeckt bleiben; die unabhängigen Semantikprüfungen und die zuvor angegebenen Tests sind deshalb weiterhin erforderlich.
+
+\paragraph{Vergleich mit dem Subgraph Algorithmus.}
+Für $3000$ gezielt konstruierte Paare mit $A\subseteq B$ erkannte die Signaturheuristik $1887$ als enthalten und verfehlte $1113$ ($37{,}1\,\%$). Eine zusätzliche Stichprobe von $3000$ unabhängigen Paaren ergab $247$ falsche positive Enthalten-Urteile ($8{,}23\,\%$). Die exakte komponentenweise Prüfung erkannte dagegen alle $3000$ konstruierten Teilmengenbeziehungen. Das Ergebnis belegt für diese Stichproben sowohl falsch negative als auch falsch positive Heuristikurteile. Es bestätigt damit die methodische Entscheidung, die Heuristik nur als Hinweis zu verwenden und Richtlinienentscheidungen an der exakten Prüfung auszurichten. Das Feld \code{passed} ist hier kein Qualitätsurteil über die Heuristik: Der Versuch ist bestanden, weil die exakte Prüfung alle konstruierten positiven Fälle erkannte; die gemessenen Fehlurteile der Heuristik sind gerade der erwartete Gegenstand des Experiments.
+
+\section{Nicht abgeschlossene Experimente und Aussagegrenzen}
+
+Das Laufzeitexperiment plante Eingaben mit bis zu $5000$ Gruppen und sollte daraus Steigungen im Log-Log-Diagramm bestimmen. Es brach beim ersten nicht mehr darstellbaren Umfang, $n=1000$, beim automatischen Vergeben der VLAN-IDs mit \texttt{PlanError: Keine freie VLAN-ID mehr verfügbar} ab. Die Implementierung vergibt automatische IDs in Zehnerschritten ab $10$; damit stehen auf diesem Schema nur die $409$ IDs von $10$ bis $4090$ zur Verfügung. Die bis dahin verarbeiteten Größen $n=10,30,100,300$ genügen nicht zur geplanten vollständigen Auswertung; die Datei \texttt{runtime.json} enthält wegen der Ausnahme gar keine Messpunkte. Aus diesem Lauf lässt sich weder eine empirische Bestätigung der Laufzeitanalyse noch ein Gegenbeispiel zur theoretischen Schranke ableiten. Dafür müsste der Versuch mit passenden expliziten VLAN-IDs, einer erweiterten Vergabestrategie oder einer Gruppenanzahl unterhalb der automatischen Grenze erneut ausgeführt werden.
+
+Auch das IPv6-Experiment scheiterte bei der ersten Größenstufe oberhalb der VLAN-Grenze, $n=500$, mit derselben Ausnahme. Die Ursache liegt somit in der begrenzten automatischen VLAN-Vergabe und nicht in einem gemeldeten IPv6-Adressierungs- oder Verifikationsfehler. Da der Abbruch vor dem Abschluss der Messreihe erfolgte, enthält \texttt{ipv6.json} ebenfalls keine gültigen Skalierungsdaten. Die erfolgreichen IPv6-Rückübersetzungsfälle ($1800$ der insgesamt $3600$ Rückübersetzungen entfielen auf IPv6) liefern weiterhin Evidenz für die Regelsemantik, ersetzen aber keinen eigenständigen IPv6-Skalierungstest.
+
+Als Plausibilitätsanker liefert der zusätzlich ausgeführte Beispielaufruf für \texttt{10.20.0.0/16} fünf ausgerichtete, nicht überlappende Teilnetze mit zusammen $544$ belegten Adressen. Das sind $0{,}83\,\%$ des Basisnetzes; $64992$ Adressen bleiben in zehn maximal zusammengefassten freien Bereichen verfügbar. Die ausgegebenen Hostzahlen decken jeweils den Bedarf der Gruppen ab. Dieser konkrete Lauf illustriert das erwartete Verhalten im Anwendungsfall, ist aber ebenfalls nur ein einzelnes Beispiel.
+
+Insgesamt stützen die bestandenen Prüfungen die getesteten Aussagen zu Blockauslastung, exakter Aufrundung, Packbarkeit, Erweiterung, Hierarchie, Verdopplung und Firewall-Semantik. Der Lauf ist gleichwohl nicht vollständig erfolgreich: Zwei geplante Experimente wurden durch eine technische Kapazitätsgrenze des Testaufbaus abgebrochen. Die angemessene Schlussfolgerung lautet daher nicht „alle Experimente bestanden“, sondern: neun Teilversuche erfüllten ihre jeweiligen Kriterien; Laufzeit- und IPv6-Skalierung müssen nach Anpassung der VLAN-Testdaten erneut gemessen werden. Die vollständigen Einzelwerte und Metadaten stehen in den JSON-Dateien unter \texttt{src/results/}.
+
+\chapter{Zusammenfassung}
 
 Der Subnetting Algorithmus \texttt{sbntgg} bietet eine effiziente und beweisbar korrekte Methode zur Planung von IP-Netzen und zur Erzeugung von Firewall-Regeln. Durch die Verwendung von:
 
@@ -1398,7 +1491,11 @@ Der Subnetting Algorithmus \texttt{sbntgg} bietet eine effiziente und beweisbar 
 
 erreicht der Algorithmus im Kern die optimale Laufzeit $\Theta(n\log n)$ im Vergleichsmodell und vermeidet naive Ansätze, die $n!$ Reihenfolgen durchsuchen müssten.
 
-\subsection{Anwendungen}
+Die Experimente in Abschnitt~\ref{sec:experimentelle-ergebnisse} stützen diese Ergebnisse für die untersuchten Stichproben: Neun von elf Teilversuchen bestanden ihre Kriterien. Die mittlere Blockauslastung lag bei $73{,}91\,\%$ gegenüber dem theoretischen Erwartungswert von $72{,}13\,\%$; die Packbarkeitsentscheidung stimmte in $4000$ Fällen mit einer vollständigen Suche überein, und alle $3600$ Firewall-Rückübersetzungen waren erfolgreich. Die Richtlinienmessung zeigt zugleich, dass die Subgraph-Signaturheuristik sowohl Teilmengenbeziehungen verfehlen als auch falsche positive Urteile liefern kann; maßgeblich bleibt deshalb die exakte Prüfung.
+
+Eine empirische Laufzeitbestätigung und eine IPv6-Skalierungsaussage lassen sich aus diesem Lauf nicht ableiten: Die beiden entsprechenden Experimente brachen bei $n=1000$ beziehungsweise $n=500$ ab, weil die automatische VLAN-Vergabe erschöpft war. Das ist eine Grenze des Versuchsaufbaus, kein nachgewiesener Fehler des Planungsalgorithmus; für diese Messungen ist ein angepasster erneuter Lauf erforderlich.
+
+\section{Anwendungen}
 
 Der Algorithmus eignet sich besonders für:
 \begin{itemize}
@@ -1409,7 +1506,7 @@ Der Algorithmus eignet sich besonders für:
 	\item Automatisierte Tests von Netzwerk-Entwürfen (Plan als Datei im Versionsverwaltungssystem)
 \end{itemize}
 
-\subsection{Erweiterungen: Umsetzung und Ausblick}
+\section{Erweiterungen: Umsetzung und Ausblick}
 \label{sec:ausblick}
 
 Dieser Abschnitt enthielt in der ersten Fassung nur Vorschläge. Die meisten sind in Version~1.1.0 umgesetzt; die Beweise bleiben hier stehen und werden durch Angaben zu Modul, Kommandozeile und Prüfung ergänzt (Tabelle~\ref{tab:status}). Offen bleiben Protokolle und Ports, weitere Plattformen, die Integrationen (DHCP, DNS, IPAM), mehrere Netze je Gruppe und die theoretischen Fragen am Ende des Abschnitts.
@@ -1440,7 +1537,7 @@ Ports, Plattformen, Integrationen & --- & --- & offen \\
 \label{tab:status}
 \end{center}
 
-\subsubsection{Verbesserungen am bestehenden Programm}
+\section{Verbesserungen am bestehenden Programm}
 
 Die Analyse der ersten Fassung hatte acht Verbesserungsmöglichkeiten sichtbar gemacht; sie sind alle umgesetzt (Umsetzung im Anschluss an die Liste):
 
@@ -1466,7 +1563,7 @@ Die Analyse der ersten Fassung hatte acht Verbesserungsmöglichkeiten sichtbar g
 	Das Urteil hängt nach Satz~\ref{satz:firewall} nur von der Menge $P$ ab. Die Bereinigung ändert $P$ nicht (Selbstbezüge sind per Definition nicht in $P$). Der Generator erzeugt je Element der bereinigten Listen genau eine Regel, das sind $|P|$ viele.
 \end{proof}
 
-\subsubsection{Weniger Regeln durch Gruppierung}
+\section{Weniger Regeln durch Gruppierung}
 
 Gruppen mit gleicher Zielmenge lassen sich zu einer Regel mit Mengen zusammenfassen (\texttt{nftables}: \texttt{ip saddr \{ A, B \} ip daddr \{ C \}}). Sei $T(i) = \{j \ne i: g_j \in \text{acc}(g_i)\}$ und $\mathcal{T}$ die Menge der verschiedenen nichtleeren $T(i)$.
 
@@ -1488,7 +1585,7 @@ ip saddr { 10.20.1.128/26, 10.20.1.192/26 } ip daddr { 10.20.2.0/27 } accept com
 \end{lstlisting}
 Bei \texttt{iptables} entsteht je Regelgruppe ein Paar von \texttt{ipset}-Mengen (\texttt{hash:net}) und eine Regel mit \texttt{-m set --match-set}. Bei Cisco werden nur die Zielmengen zu \texttt{object-group network} zusammengefasst, denn die Quelle ist stets das eigene Netz der ACL; bei IPv6 bleibt die Cisco-Ausgabe ungruppiert. Die Rückübersetzung bestätigt für alle drei Plattformen, dass die gruppierten Regeln dieselbe Paarmenge $P$ ergeben.
 
-\subsubsection{Erweiterungen der Planung}
+\section{Erweiterungen der Planung}
 
 \paragraph{Bestandsnetze, feste Blöcke und mehrere Pools.} Oft sind Teile des Adressraums bereits vergeben, oder es stehen mehrere Basisnetze zur Verfügung. Sei $\mathcal{M}$ die Menge der maximalen freien Blöcke (aus jeder maximalen freien Lücke die minimale CIDR-Zerlegung, ergänzt um die Pools).
 
@@ -1576,7 +1673,7 @@ Im Mittel nutzt ein Block also etwa $72\,\%$ seiner Adressen für Bedarf und Res
 
 \paragraph{Mehrere Netze je Gruppe.} Erlaubt man einer Gruppe mehrere Subnetze (zum Beispiel für sehr große Gruppen oder per Sekundäradresse), so lässt sich ihr Bedarf in Zweierpotenzen zerlegen; jedes Teilnetz hat jedoch eigene Overhead-Adressen. Die Abwägung zwischen weniger Verschnitt und mehr Overhead ist eine offene Optimierungsfrage.
 
-\subsubsection{Erweiterungen der Firewall-Erzeugung}
+\section{Erweiterungen der Firewall-Erzeugung}
 
 \begin{itemize}
 	\item \textbf{Protokolle und Ports} (offen). \texttt{access} könnte Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert.
@@ -1586,7 +1683,7 @@ Im Mittel nutzt ein Block also etwa $72\,\%$ seiner Adressen für Bedarf und Res
 	\item \textbf{Weitere Plattformen} (offen): Juniper, MikroTik, pfSense/OPNsense, Palo Alto, Cloud-Sicherheitsgruppen. Jede Plattform braucht ihre eigene Semantik-Aussage analog zu den Sätzen~\ref{satz:firewall} und \ref{satz:cisco}.
 \end{itemize}
 
-\subsubsection{Verbindung zum Subgraph Algorithmus}
+\section{Verbindung zum Subgraph Algorithmus}
 \label{sec:subgraph-verbindung}
 
 Die Zugriffsmatrix $Z$ ist die Adjazenzmatrix des Zugriffsgraphen $G_Z$ (Definition~\ref{def:zugriff}); der Subgraph Algorithmus ist in \cite{epp26} beschrieben. Im Konfigurationsbeispiel ist in der Dateireihenfolge (\texttt{Server}, \texttt{Entwicklung}, \texttt{HR}, \texttt{Drucker}, \texttt{Gäste})
@@ -1628,7 +1725,7 @@ Bei übereinstimmender Beschriftung ist der Vergleich ein einfacher Vergleich de
 
 Für Firewall-Richtlinien hat das Folgen: Wer aufgrund einer falschen Meldung \glqq enthalten\grqq{} die vermeintlich allgemeinere Richtlinie behält, ändert die Menge der erlaubten Zugriffe. Deshalb ist in \code{policy.py} die exakte Prüfung maßgeblich. Sie umfasst (i) den Vergleich der Paarmengen nach Gruppennamen (Lemma~\ref{lem:richtlinie}) und (ii) die exakte Entsprechung der Rotationssuche: $Z_A$ ist \emph{zyklisch} in $Z_B$ enthalten ab Position $s$, wenn $Z_A \le Z_B[\pi_s,\pi_s]$ für die Indizes $\pi_s = (s, s+1, \dots, s+n_A-1) \bmod n_B$ gilt. Das kostet $O(n_B\,n_A^2)$ und ist \code{rotation_containment}. \code{compare_policies} gibt beides zusammen mit der Rohentscheidung des Subgraph Algorithmus zurück und kennzeichnet in \code{subgraph_agrees}, ob die Heuristik mit der exakten Prüfung übereinstimmt; die Empfehlung \glqq behalte die allgemeinere\grqq{} (\code{keep}) folgt nur aus der exakten Prüfung. Der Aufruf \texttt{subnetplan a.yaml --compare b.yaml} gibt den Bericht auf der Fehlerausgabe aus.
 
-\subsubsection{Integration und Ausgabeformate}
+\section{Integration und Ausgabeformate}
 
 \begin{itemize}
 	\item \textbf{DHCP:} Konfiguration für ISC DHCP oder Kea direkt aus Netz, Gateway, erster und letzter Host.
@@ -1639,7 +1736,7 @@ Für Firewall-Richtlinien hat das Folgen: Wer aufgrund einer falschen Meldung \g
 	\item \textbf{Warnungen} (umgesetzt, \texttt{--warnings}, \texttt{--vpn-network}, \texttt{--warn-threshold}): Basisnetz nicht aus privaten Bereichen \cite{rfc1918}, Überschneidung mit VPN-Netzen, Auslastung über einem Schwellwert, bei Cisco fehlender Rückverkehr.
 \end{itemize}
 
-\subsubsection{Qualitätssicherung und formale Verifikation}
+\section{Qualitätssicherung und formale Verifikation}
 
 \begin{itemize}
 	\item \textbf{Eigenschaftsbasierte Tests} (umgesetzt, ohne zusätzliche Bibliothek): Die Sätze~\ref{satz:korrekt}, \ref{satz:luecke}, \ref{satz:frei} und \ref{satz:firewall} sowie die der Erweiterungen sind als seeded Zufallstests in \texttt{tests/test\_properties.py} dauerhaft im Projekt; dazu kommen die Skripte \texttt{pruefe-saetze.py} und \texttt{pruefe-erweiterungen.py}. Die Bibliothek Hypothesis wäre eine mögliche Ergänzung, weil sie Gegenbeispiele automatisch verkleinert.
@@ -1649,7 +1746,7 @@ Für Firewall-Richtlinien hat das Folgen: Wer aufgrund einer falschen Meldung \g
 	\item \textbf{Differenztests} gegen andere Werkzeuge (\texttt{ipcalc}, \texttt{sipcalc}, \texttt{netaddr}) und Fuzzing des YAML-Parsers.
 \end{itemize}
 
-\subsubsection{Offene theoretische Fragen}
+\section{Offene theoretische Fragen}
 
 \begin{itemize}
 	\item \textbf{Online-Variante:} Gruppen treffen nacheinander ein, und Entscheidungen sind endgültig. Wie viel Platz geht gegenüber der Offline-Optimallösung (Satz~\ref{satz:kompakt}) im schlimmsten Fall verloren? Das Buddy-System \cite{knuth} bietet die natürliche Strategie.
@@ -1658,7 +1755,7 @@ Für Firewall-Richtlinien hat das Folgen: Wer aufgrund einer falschen Meldung \g
 	\item \textbf{Komplexität mit Nebenbedingungen:} Reihenfolge-Vorgaben (Gruppen müssen in bestimmter Reihenfolge liegen) bei fester Ausrichtung: Wie ändert sich die Aussage von Satz~\ref{satz:existenz}, wenn die Reihenfolge teilweise vorgeschrieben ist?
 \end{itemize}
 
-\subsubsection{Priorisierte Übersicht}
+\section{Priorisierte Übersicht}
 
 \begin{center}
 \small
@@ -1682,7 +1779,7 @@ Formale Verifikation (SMT, Beweisassistent) & hoch & Gewissheit & Satz~\ref{satz
 \end{tabularx}
 \end{center}
 
-\subsection{Implementierungshinweis}
+\section{Implementierungshinweis}
 
 Der Subgraph Algorithmus ist verfügbar unter \url{https://github.com/naphz86/subgraph} \cite{epp26}. Der Code von \texttt{sbntgg} befindet sich im Projekt \texttt{sbntgg} (Paket \texttt{subnetplan}, Version 1.1.0, Python 3.11 oder neuer, Abhängigkeiten PyYAML, NumPy und das Paket \texttt{subgraph}, das \texttt{pip} über die \texttt{pyproject.toml} installiert). Installation und Aufruf:
 \begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize]

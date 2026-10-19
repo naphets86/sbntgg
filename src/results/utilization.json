@@ -1,0 +1,37 @@
+{
+  "experiment": "utilization",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "plans": 4000
+  },
+  "seconds": 5.182306900000185,
+  "description": "Blockauslastung r/s bei logarithmisch gleichverteilten Gruppengrößen",
+  "groups_observed": 27933,
+  "mean_utilization": 0.7391030056854795,
+  "expected_utilization": 0.7213475204444817,
+  "deviation_from_theory": 0.017755485240997793,
+  "monte_carlo_reference": 0.7203952709878074,
+  "min_utilization": 0.500244140625,
+  "utilization_distribution": {
+    "n": 27933,
+    "min": 0.500244140625,
+    "max": 1.0,
+    "mean": 0.7391030056854795,
+    "median": 0.734375,
+    "stdev": 0.14714163392346616
+  },
+  "utilization_at_most_half": 0,
+  "fixed_over_vlsm_ratio": {
+    "n": 4000,
+    "min": 1.0,
+    "max": 10.629757785467127,
+    "mean": 3.6579944802666957,
+    "median": 3.4594594594594597,
+    "stdev": 1.5775045160928365
+  },
+  "fixed_waste_formula_matches": 4000,
+  "plans": 4000,
+  "verify_failures": 0,
+  "passed": true
+}

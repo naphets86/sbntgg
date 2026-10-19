@@ -1,0 +1,15 @@
+{
+  "experiment": "packability",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "cases": 4000
+  },
+  "seconds": 0.413219700000127,
+  "description": "packable() gegen Backtracking in einem Universum von 32 Adressen",
+  "cases": 4000,
+  "agreements": 4000,
+  "packable_cases": 2686,
+  "constructive_placements_valid": 2686,
+  "passed": true
+}

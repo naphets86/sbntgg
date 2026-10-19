@@ -1,0 +1,12 @@
+{
+  "experiment": "ipv6",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "max_n": 2000,
+    "plans": 100
+  },
+  "seconds": 0.020863400000052934,
+  "error": "PlanError: Keine freie VLAN-ID mehr verfügbar",
+  "passed": false
+}

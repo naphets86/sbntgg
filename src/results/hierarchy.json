@@ -1,0 +1,30 @@
+{
+  "experiment": "hierarchy",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "plans": 1000
+  },
+  "seconds": 1.5332335000000512,
+  "description": "Standortblöcke: E < 2D und Summenkette; Verhältnis aggregierter zu einzelnen Routen",
+  "plans": 1000,
+  "bounds_hold": 1000,
+  "plans_valid": 1000,
+  "site_blocks_over_group_blocks": {
+    "n": 1000,
+    "min": 1.0,
+    "max": 1.9591836734693877,
+    "mean": 1.4870192288105917,
+    "median": 1.51595100934308,
+    "stdev": 0.24431005914052736
+  },
+  "routes_aggregated_over_flat": {
+    "n": 1000,
+    "min": 0.1,
+    "max": 1.0,
+    "mean": 0.4024709718429145,
+    "median": 0.3333333333333333,
+    "stdev": 0.23141601459679925
+  },
+  "passed": true
+}

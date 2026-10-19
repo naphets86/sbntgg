@@ -1,0 +1,63 @@
+{
+  "experiment": "roundtrip",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "plans": 300
+  },
+  "seconds": 1.13785340000004,
+  "description": "check_roundtrip je IP-Version, Plattform und Optionssatz",
+  "by_case": {
+    "ipv4/iptables/standard": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv4/iptables/alle_optionen": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv4/nftables/standard": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv4/nftables/alle_optionen": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv4/cisco/standard": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv4/cisco/alle_optionen": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv6/iptables/standard": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv6/iptables/alle_optionen": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv6/nftables/standard": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv6/nftables/alle_optionen": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv6/cisco/standard": {
+      "checked": 300,
+      "ok": 300
+    },
+    "ipv6/cisco/alle_optionen": {
+      "checked": 300,
+      "ok": 300
+    }
+  },
+  "checked": 3600,
+  "ok": 3600,
+  "passed": true
+}

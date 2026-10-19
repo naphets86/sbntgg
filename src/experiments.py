@@ -21,6 +21,12 @@ Das Experiment ``policy_comparison`` benötigt das Paket ``subgraph``; fehlt es,
 """
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+if __package__ in (None, ""):  # direkter Aufruf: python src/experiments.py
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+
 import argparse
 import ipaddress
 import itertools
@@ -37,24 +43,24 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from .access import policy_pairs, rule_groups
-from .blocks import maximal_free_blocks, pack, packable
-from .config import build_config, build_extension
-from .exact import ceil_product
-from .extend import can_double, double_in_place, extend_plan, renumbered_hosts
-from .firewall import FirewallOptions, render_firewall
-from .hierarchy import site_demands
-from .models import PlanError
-from .planner import group_prefix, plan_subnets
-from .roundtrip import check_roundtrip
-from .stats import (
+from src.access import policy_pairs, rule_groups
+from src.blocks import maximal_free_blocks, pack, packable
+from src.config import build_config, build_extension
+from src.exact import ceil_product
+from src.extend import can_double, double_in_place, extend_plan, renumbered_hosts
+from src.firewall import FirewallOptions, render_firewall
+from src.hierarchy import site_demands
+from src.models import PlanError
+from src.planner import group_prefix, plan_subnets
+from src.roundtrip import check_roundtrip
+from src.stats import (
     EXPECTED_UTILIZATION,
     fixed_extra_waste,
     plan_statistics,
     simulate_mean_utilization,
     sites_bound_holds,
 )
-from .verify import verify_plan
+from src.verify import verify_plan
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 GATEWAYS = ("first", "last", "none")
@@ -155,7 +161,9 @@ def exhaustive_packable(free_blocks: Sequence[Any], sizes: Sequence[int], univer
     Referenz für Satz "Packbarkeit": unabhängig von ``blocks.packable`` implementiert.
     Die freien Blöcke müssen im Universum ``[0, universe)`` ab ``base`` liegen.
     """
-    base = min(int(b.network_address) for b in free_blocks) if free_blocks else 0
+    # Das Universum beginnt an einer Vielfachen seiner Größe (Ausrichtung bleibt erhalten).
+    first = min(int(b.network_address) for b in free_blocks) if free_blocks else 0
+    base = first // universe * universe
     blocks = [(int(b.network_address) - base, b.num_addresses) for b in free_blocks]
     ordered = sorted(sizes, reverse=True)
 
@@ -538,7 +546,7 @@ def exp_policy_comparison(rng: random.Random, scale: Scale) -> Dict[str, Any]:
     try:
         import numpy as np
 
-        from .policy import compare_matrices, matrix_included
+        from src.policy import compare_matrices, matrix_included
     except ImportError as exc:  # Abhängigkeit fehlt
         return {"skipped": f"Paket 'subgraph' nicht verfügbar: {exc}", "passed": True}
     nrng = np.random.default_rng(rng.randrange(2**32))

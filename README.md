@@ -19,6 +19,7 @@ sbntgg teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in üb
 - [Projektstruktur](#projektstruktur)
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
+- [Experimente](#experimente)
 - [Tests](#tests)
 - [Erwerb](#erwerb)
 
@@ -286,6 +287,30 @@ pip install -e ".[dev]"
 | Prüfungen und Berichte (auf stderr) | `--verify`, `--roundtrip`, `--warnings`, `--stats`, `--compare ANDERE.yaml` |
 
 `--compare` vergleicht die Zugriffsrichtlinien exakt und zusätzlich mit dem Subgraph Algorithmus. Dessen Ergebnis ist eine Heuristik und wird gesondert ausgewiesen; maßgeblich ist die exakte Prüfung.
+
+## Experimente
+
+Die reproduzierbaren Experimente prüfen zentrale Eigenschaften der Implementierung mit zufällig erzeugten Eingaben. Ein vollständiger Lauf lässt sich aus dem Projektverzeichnis starten:
+
+```bash
+python -m src.experiments
+```
+
+Mit `--quick` läuft eine verkleinerte Variante; `--list` zeigt die verfügbaren Versuche und `--only runtime packability --seed 7` führt ausgewählte Experimente mit einem anderen Startwert aus. Die Ergebnisse werden als einzelne JSON-Dateien und mit Laufumgebung, Seed und Status in `src/results/summary.json` gespeichert. Gleicher Programmstand, Seed und Umfang reproduzieren die Eingaben; Laufzeiten können abweichen.
+
+Der dokumentierte vollständige Lauf verwendete Seed `2026`, Python 3.13.16 und Windows 11. Neun von elf Experimenten bestanden ihre jeweiligen Kriterien:
+
+| Untersuchung | Ergebnis |
+| --- | --- |
+| Blockauslastung und VLSM gegenüber festen Präfixen | 4.000 Pläne; mittlere Blockauslastung 73,91 % gegenüber 72,13 % theoretischem Erwartungswert; keine Verifikationsfehler |
+| Exakte Bedarfsermittlung | 200.000 Stichproben; direkte binäre Fließkomma-Aufrundung wich 48-mal um eine Adresse ab, die untersuchte gerundete und die exakte Variante keinmal |
+| Packbarkeit | 4.000 Fälle stimmten mit vollständiger Backtracking-Suche überein; alle 2.686 konstruktiven Zuteilungen waren gültig |
+| Erweiterung und Hierarchie | 1.500 Erweiterungsvorhersagen stimmten; bei 1.226 erfolgreichen Erweiterungen blieben bestehende Subnetze unverändert. Alle 1.000 hierarchischen Pläne erfüllten die geprüften Schranken |
+| Firewall-Rückübersetzung | 3.600 Prüfungen über IPv4/IPv6, iptables/nftables/Cisco und zwei Optionssätze bestanden |
+| Regelgruppierung | Die Zugriffsmatrix blieb in allen 600 Plänen erhalten. Bei 100 Gruppen und hoher Dichte sank die mittlere nftables-Ausgabe von 8.921 auf 109 Zeilen; iptables kann durch Gruppierung dagegen mehr Zeilen erzeugen |
+| Richtlinienvergleich | Die Signaturheuristik verfehlte 37,1 % der konstruierten Teilmengenbeziehungen und lieferte 8,23 % falsche positive Urteile in unabhängigen Paaren. Für Entscheidungen ist daher die exakte Prüfung maßgeblich |
+
+Das Laufzeit- und das eigenständige IPv6-Skalierungsexperiment wurden **nicht** erfolgreich abgeschlossen: Bei 1.000 beziehungsweise 500 Gruppen brach die automatische VLAN-Vergabe mit `PlanError: Keine freie VLAN-ID mehr verfügbar` ab. Das ist eine Grenze des Versuchsaufbaus, kein nachgewiesener Fehler der IPv6-Adressierung. Diese beiden Versuche liefern aus diesem Lauf keine Skalierungsaussage; die Laufzeitanalyse ist damit empirisch nicht bestätigt. Insgesamt meldet der Lauf deshalb `all_passed = false`, obwohl neun Teilversuche bestanden wurden.
 
 ## Tests
 

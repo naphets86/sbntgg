@@ -1,0 +1,15 @@
+{
+  "experiment": "extension",
+  "seed": 2026,
+  "quick": false,
+  "sizes": {
+    "plans": 1500
+  },
+  "seconds": 1.4648059999999532,
+  "description": "Erweiterung eines Plans um eine Gruppe; Vorhersage aus der Summe der freien Adressen",
+  "plans": 1500,
+  "prediction_matches": 1500,
+  "extensions_succeeded": 1226,
+  "existing_subnets_unchanged_and_valid": 1226,
+  "passed": true
+}
