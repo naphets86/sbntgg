@@ -41,6 +41,7 @@ omit = [
     "venv/*",
     ".venv/*",
     "doc/*",
+    "src/experiments.py"
 ]
 
 [tool.pytest.ini_options]
