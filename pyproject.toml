@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "subnetplan"
-version = "3.0.0"
+version = "4.0.0"
 description = "Automatisches Subnetting für Mitarbeitergruppen mit Firewall-Regeln (iptables, nftables, Cisco-ACL) und JSON-API"
 authors = [
     { name = "Stephan Epp" }
@@ -16,7 +16,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     # Subgraph Algorithmus (Richtlinienvergleich, src/policy.py): wird installiert, nicht kopiert.
-    "subgraph @ git+https://github.com/naphz86/subgraph.git",
+    "subgraph @ git+https://github.com/naphets86/subgraph.git",
 ]
 
 [project.optional-dependencies]

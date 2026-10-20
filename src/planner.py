@@ -129,6 +129,7 @@ def _build_subnet(
         usable_hosts=usable,
         access=group.access,
         site=site if site is not None else group.site,
+        services=group.services,
     )
 
 

@@ -35,11 +35,16 @@ def render_json(plan: Plan) -> str:
 def render_csv(plan: Plan) -> str:
     buffer = io.StringIO()
     fields = CSV_FIELDS + (("site",) if any(s.site is not None for s in plan.subnets) else ())
+    with_services = any(s.services for s in plan.subnets)
+    if with_services:
+        fields += ("services",)
     writer = csv.DictWriter(buffer, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     for subnet in plan.subnets:
         row = subnet.as_dict()
         row["access"] = ";".join(row["access"])
+        if with_services:  # "Ziel:tcp/22,tcp/443;Ziel2:udp/53"
+            row["services"] = ";".join(f"{t}:{','.join(specs)}" for t, specs in row.get("services", {}).items())
         writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
     return buffer.getvalue().rstrip("\n")
 

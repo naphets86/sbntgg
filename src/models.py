@@ -4,7 +4,10 @@ from __future__ import annotations
 import ipaddress
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+
+if TYPE_CHECKING:  # pragma: no cover - nur für Typangaben, vermeidet den Importzyklus mit ports.py
+    from .ports import ServiceSet
 
 IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
@@ -73,6 +76,9 @@ class Group:
     overhead: Optional[int] = None
     network: Optional[IPNetwork] = None
     site: Optional[str] = None
+    # Einschränkung auf Protokolle und Ports je Zugriffsziel (Kapitel "Protokolle und Ports"):
+    # nur Ziele mit Einschränkung stehen hier; jedes andere Ziel in ``access`` gilt für alle Dienste.
+    services: Tuple[Tuple[str, "ServiceSet"], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -101,6 +107,7 @@ class Subnet:
     usable_hosts: int
     access: Tuple[str, ...]
     site: Optional[str] = None
+    services: Tuple[Tuple[str, "ServiceSet"], ...] = ()  # Einschränkungen je Ziel (siehe Group)
 
     @property
     def netmask(self) -> str:
@@ -122,6 +129,8 @@ class Subnet:
         }
         if self.site is not None:
             data["site"] = self.site
+        if self.services:
+            data["services"] = {target: list(sigma.specs()) for target, sigma in self.services}
         return data
 
 

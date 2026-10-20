@@ -77,7 +77,7 @@
 	{≥}{{$\geq$}}1
 }
 
-\title{Der Subnetting Algorithmus}
+\title{Der Subnetz Algorithmus}
 \author{\textsc{Stephan Epp}\\ {\small \texttt{\textbf{M.Sc.}}}}
 \date{18. Oktober 2026}
 
@@ -89,13 +89,13 @@
 
 \begin{abstract}
 \noindent
-Der Subnetting Algorithmus \texttt{sbntgg} (Kommandozeilenprogramm \texttt{subnetplan}) teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf und erzeugt aus einer Zugriffsmatrix Firewall-Regeln für \texttt{iptables}, \texttt{nftables} und Cisco-ACLs.
+Der Subnetz Algorithmus \texttt{sbntgg} (Kommandozeilenprogramm \texttt{subnetplan}) teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf und erzeugt aus einer Zugriffsmatrix Firewall-Regeln für \texttt{iptables}, \texttt{nftables} und Cisco-ACLs.
 Die Arbeit definiert das Problem formal, beweist die Korrektheit der Zuteilung (Ausrichtung, Überlappungsfreiheit, Kapazitätsgarantie), zeigt, dass die Strategie \glqq größte Blöcke zuerst\grqq{} lückenlos und unter allen Anordnungen optimal ist, charakterisiert die freien Restbereiche exakt und beweist, dass sich jede Wachstumsreserve ohne Umnummerierung nutzen lässt, sobald ihre Gesamtgröße in den freien Adressraum passt.
 Für die Firewall-Regeln wird ein Default-Deny-Satz bewiesen.
 Die Laufzeit des Kerns beträgt $\Theta(n\log n + a)$ im Vergleichsmodell und ist damit optimal.
 Die zunächst nur vorgeschlagenen Erweiterungen sind in Version~1.1.0 umgesetzt: Planung mit Bestandsnetzen und mehreren Pools (exakte Packbarkeitsbedingung), Mindestgrößen und eigener Overhead, zweistufige Planung mit Standortblöcken, inkrementelle Erweiterung und Verdopplung an Ort und Stelle, Regelgruppierung, Rückverkehr bei Cisco-ACLs sowie eine Rückübersetzung der erzeugten Regeln als Korrektheitstest.
 Der Richtlinienvergleich über den Subgraph Algorithmus wird durch eine exakte Prüfung abgesichert, weil dessen Signaturvergleich, wie die Arbeit zeigt, nur eine Heuristik ist.
-Ein eigenes Kapitel entwirft die noch nicht umgesetzte Erweiterung um Protokolle und Ports formal: Portmengen haben eine eindeutige Intervall-Normalform, jedes Port-Intervall zerfällt in höchstens $30$ ausgerichtete Portblöcke (scharf), und Überlappung, Lücken und Vollständigkeit einer Freigabeliste sind exakt prüfbar.
+Ein eigenes Kapitel entwirft die Erweiterung um Protokolle und Ports formal; sie ist seit Version~4.0.0 in \texttt{ports.py} umgesetzt: Portmengen haben eine eindeutige Intervall-Normalform, jedes Port-Intervall zerfällt in höchstens $30$ ausgerichtete Portblöcke (scharf), und Überlappung, Lücken und Vollständigkeit einer Freigabeliste sind exakt prüfbar.
 Ein ausführlich erklärtes Konfigurationsbeispiel, eine Einführung in das Subnetting für Schülerinnen und Schüler sowie ein umfangreicher Ausblick ergänzen die Arbeit.
 \end{abstract}
 
@@ -105,7 +105,7 @@ Ein ausführlich erklärtes Konfigurationsbeispiel, eine Einführung in das Subn
 \pagenumbering{arabic}
 \chapter{Einführung}
 
-Der Subnetting Algorithmus \texttt{sbntgg} ist ein deterministischer Algorithmus zur automatischen Planung von IP-Netzen. Aus einer Konfigurationsdatei mit einem zugewiesenen Adressbereich (dem \emph{Basisnetz}) und einer Liste von Gruppen (zum Beispiel \glqq Entwicklung\grqq, \glqq HR\grqq, \glqq Drucker\grqq) berechnet er für jede Gruppe ein eigenes Subnetz mit VLAN-ID, Gateway und Wachstumsreserve. Optional erzeugt er aus der Zugriffsmatrix der Gruppen ein Regelwerk für Firewalls.
+Der Subnetz Algorithmus \texttt{sbntgg} ist ein deterministischer Algorithmus zur automatischen Planung von IP-Netzen. Aus einer Konfigurationsdatei mit einem zugewiesenen Adressbereich (dem \emph{Basisnetz}) und einer Liste von Gruppen (zum Beispiel \glqq Entwicklung\grqq, \glqq HR\grqq, \glqq Drucker\grqq) berechnet er für jede Gruppe ein eigenes Subnetz mit VLAN-ID, Gateway und Wachstumsreserve. Optional erzeugt er aus der Zugriffsmatrix der Gruppen ein Regelwerk für Firewalls.
 
 \section{Problemstellung}
 
@@ -124,6 +124,8 @@ Gegeben sind ein Basisnetz $B$ (IPv4 oder IPv6), $n$ Gruppen $g_1,\ldots,g_n$ mi
 \section{Motivation}
 
 Die manuelle Planung von Subnetzen ist fehleranfällig: Netze überlappen sich, Blockgrenzen werden falsch berechnet, VLAN-IDs doppelt vergeben, und das Wachstum der Gruppen wird vergessen. Gleichzeitig wird die Zugriffsmatrix \glqq wer darf auf wen\grqq{} meist getrennt vom Adressplan in Firewall-Regeln übersetzt, wodurch Plan und Regeln auseinanderlaufen. \texttt{sbntgg} berechnet beides aus einer einzigen Quelle. Die Grundlagen sind das Subnetting nach \cite{rfc950}, die klassenlose Adressierung (CIDR) nach \cite{rfc4632}, variable Subnetzmasken nach \cite{rfc1878} und die IPv6-Adressarchitektur nach \cite{rfc4291}.
+
+Der Algorithmus trägt den Namen \emph{Subnetz Algorithmus}; \texttt{sbntgg} ist der Name des Projekts und \texttt{subnetplan} der des Pakets und des Kommandozeilenprogramms. Er ist nicht mit dem Subgraph Algorithmus \cite{epp26} zu verwechseln, einem eigenständigen Verfahren, das hier nur für den Richtlinienvergleich verwendet wird.
 
 Eine besondere Verbindung besteht zum Subgraph Algorithmus: Die Zugriffsmatrix ist die Adjazenzmatrix eines gerichteten Graphen über den Gruppen (Abschnitt~\ref{sec:subgraph-verbindung}). Der Vergleich zweier Richtlinien ist damit eine Aufgabe für den Subgraph Algorithmus \cite{epp26}.
 
@@ -653,7 +655,7 @@ Die erzeugte Liste für \code{iptables} und \code{nftables} ist: Regel $0$: Zust
 
 \section{Implementierung}
 
-Die Implementierung in Python gliedert sich seit Version~1.1.0 in siebzehn Module. Der Kern aus Abschnitt~3 liegt in \texttt{models.py} (Konstanten, Datenklassen, Fehlertyp \texttt{PlanError}), \texttt{config.py} (Laden und Validieren), \texttt{planner.py} (Bedarf, VLAN-Vergabe, Zuteilung), \texttt{render.py} (Tabelle, CSV, JSON), \texttt{firewall.py} (Regeln) und \texttt{cli.py} (Kommandozeile). Die Module der Erweiterungen beschreibt der letzte Teil dieses Abschnitts. Verwendet werden die Standardbibliothek (\texttt{ipaddress}, \texttt{fractions}, \texttt{csv}, \texttt{json}), \texttt{PyYAML}, \texttt{NumPy} für die Zugriffsmatrix und der Subgraph Algorithmus als Abhängigkeit (\texttt{pip install} über die \texttt{pyproject.toml}, nicht als Kopie im Projekt). Nur \texttt{policy.py} importiert ihn, und die Kommandozeile lädt dieses Modul erst bei \texttt{--compare}. Alle Datenklassen sind unveränderlich (\texttt{frozen=True}), und alle Fehler werden als \texttt{PlanError} gemeldet, die die Kommandozeile mit dem Rückgabewert $1$ und der Meldung \glqq Fehler: \dots\grqq{} auf der Fehlerausgabe beantwortet.
+Die Implementierung in Python gliedert sich in neunzehn Module (ohne \texttt{\_\_init\_\_.py}; Version~1.1.0 hatte siebzehn, seitdem kamen \texttt{ports.py} und \texttt{experiments.py} hinzu). Die JSON-API liegt getrennt in \texttt{web/api.py}. Der Kern aus Abschnitt~3 liegt in \texttt{models.py} (Konstanten, Datenklassen, Fehlertyp \texttt{PlanError}), \texttt{config.py} (Laden und Validieren), \texttt{planner.py} (Bedarf, VLAN-Vergabe, Zuteilung), \texttt{render.py} (Tabelle, CSV, JSON), \texttt{firewall.py} (Regeln) und \texttt{cli.py} (Kommandozeile). Die Module der Erweiterungen beschreibt der letzte Teil dieses Abschnitts. Verwendet werden die Standardbibliothek (\texttt{ipaddress}, \texttt{fractions}, \texttt{csv}, \texttt{json}), \texttt{PyYAML}, \texttt{NumPy} für die Zugriffsmatrix und der Subgraph Algorithmus als Abhängigkeit (\texttt{pip install} über die \texttt{pyproject.toml}, nicht als Kopie im Projekt). Nur \texttt{policy.py} importiert ihn, und die Kommandozeile lädt dieses Modul erst bei \texttt{--compare}. Alle Datenklassen sind unveränderlich (\texttt{frozen=True}), und alle Fehler werden als \texttt{PlanError} gemeldet, die die Kommandozeile mit dem Rückgabewert $1$ und der Meldung \glqq Fehler: \dots\grqq{} auf der Fehlerausgabe beantwortet.
 
 \section{Bedarf und Präfixlänge}
 
@@ -852,6 +854,7 @@ Modul & Aufgabe \\
 \texttt{stats.py} & Auslastung, Verschnitt, Poisson-Dimensionierung (Satz~\ref{satz:mittel}) \\
 \texttt{checks.py} & Warnungen (Adressbereich, VPN-Überschneidung, Auslastung) \\
 \texttt{policy.py} & Richtlinienvergleich mit dem Subgraph Algorithmus (Abschnitt~\ref{sec:subgraph-verbindung}) \\
+\texttt{ports.py} & Portmengen, Zerlegung in Portblöcke, Dienstmengen (Kapitel~\ref{sec:ports}) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1484,7 +1487,7 @@ Insgesamt stützen die bestandenen Prüfungen die getesteten Aussagen zu Blockau
 
 Das bisherige Modell entscheidet ausschließlich anhand von Quell- und Zieladresse (Satz~\ref{satz:firewall}): Gibt \code{access} das Paar $(i,j)$ frei, darf die Gruppe $g_i$ jeden Dienst der Gruppe $g_j$ nutzen. Dieses Kapitel verfeinert das Modell so, dass eine Freigabe auf Protokolle und Zielports beschränkt werden kann, und beweist die Eigenschaften der Verfeinerung. Im Ausblick (Abschnitt~\ref{sec:ausblick}) war dieser Punkt als offen geführt.
 
-\paragraph{Stand und Aussagegrenzen.} Das Kapitel ist ein formaler Entwurf. Die Erweiterung ist in \texttt{subnetplan} \emph{nicht} umgesetzt: Es gibt weder eine Konfigurationssyntax noch Tests dafür. Bewiesen werden Aussagen über das mathematische Modell, nicht über ein Programm. Die genannten Zahlenwerte wurden zusätzlich mit einem eigenständigen Skript nachgerechnet, das nicht Teil von \texttt{subnetplan} ist: die Schranke aus Satz~\ref{satz:bereich} exhaustiv für die Adressbreiten $w=2,\ldots,8$ und für $w=16$ an $200000$ Zufallsintervallen (größte beobachtete Blockzahl: $26$), die Sätze~\ref{satz:normalform}, \ref{satz:luecken}, \ref{satz:merge} und \ref{satz:teilmenge} an je mindestens $5000$ Zufallsmengen im Vergleich mit einer Prüfung jedes einzelnen Ports. Diese Rechnungen bestätigen die Beweise an Stichproben und ersetzen sie nicht.
+\paragraph{Stand und Aussagegrenzen.} Das Kapitel entstand als formaler Entwurf; die Erweiterung ist seit Version~4.0.0 in \texttt{subnetplan} umgesetzt (Modul \texttt{ports.py}, Eintrag \code{\{to: Gruppe, ports: [\dots]\}} in \code{access}, Tests in \texttt{tests/test\_ports.py} und \texttt{tests/test\_ports\_integration.py}). Bewiesen werden Aussagen über das mathematische Modell; dass das Programm sie einhält, belegen die Tests nur an Stichproben. Die genannten Zahlenwerte wurden zusätzlich mit einem eigenständigen Skript nachgerechnet, das nicht Teil von \texttt{subnetplan} ist: die Schranke aus Satz~\ref{satz:bereich} exhaustiv für die Adressbreiten $w=2,\ldots,8$ und für $w=16$ an $200000$ Zufallsintervallen (größte beobachtete Blockzahl: $26$), die Sätze~\ref{satz:normalform}, \ref{satz:luecken}, \ref{satz:merge} und \ref{satz:teilmenge} an je mindestens $5000$ Zufallsmengen im Vergleich mit einer Prüfung jedes einzelnen Ports. Diese Rechnungen bestätigen die Beweise an Stichproben und ersetzen sie nicht.
 
 \section{Portraum und Dienste}
 
@@ -1742,7 +1745,7 @@ Eine Umsetzung müsste die folgenden Teile ergänzen; keiner davon ist bisher vo
 
 \chapter{Zusammenfassung}
 
-Der Subnetting Algorithmus \texttt{sbntgg} bietet eine effiziente und beweisbar korrekte Methode zur Planung von IP-Netzen und zur Erzeugung von Firewall-Regeln. Durch die Verwendung von:
+Der Subnetz Algorithmus \texttt{sbntgg} bietet eine effiziente und beweisbar korrekte Methode zur Planung von IP-Netzen und zur Erzeugung von Firewall-Regeln. Durch die Verwendung von:
 
 \begin{itemize}
 	\item Blöcken als Zweierpotenzen mit Ausrichtung (Lemma~\ref{lem:laminar}, Satz~\ref{satz:minimal})
@@ -1795,7 +1798,7 @@ Erweitern, Verdoppeln & Korollar~\ref{kor:erweiterung}, Satz~\ref{satz:verdopplu
 Rückübersetzung & --- & \texttt{roundtrip.py} & umgesetzt \\
 Richtlinienvergleich & Lemma~\ref{lem:richtlinie}, Bemerkung~\ref{bem:heuristik} & \texttt{policy.py} & umgesetzt \\
 Prüfung eines Plans & Sätze des Kerns & \texttt{verify.py} & umgesetzt \\
-Ports (nur Entwurf) & Satz~\ref{satz:ports-urteil} & --- & Entwurf \\
+Protokolle und Ports & Satz~\ref{satz:ports-urteil} & \texttt{ports.py}, \texttt{firewall.py} & umgesetzt \\
 Plattformen, Integrationen & --- & --- & offen \\
 \bottomrule
 \end{tabular}
@@ -1941,7 +1944,7 @@ Im Mittel nutzt ein Block also etwa $72\,\%$ seiner Adressen für Bedarf und Res
 \section{Erweiterungen der Firewall-Erzeugung}
 
 \begin{itemize}
-	\item \textbf{Protokolle und Ports} (Entwurf, nicht umgesetzt). \texttt{access} könnte Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert. Das ist als Satz~\ref{satz:ports-urteil} bewiesen; Entwurf und Beweise stehen in Kapitel~\ref{sec:ports}, umgesetzt ist es nicht.
+	\item \textbf{Protokolle und Ports} (umgesetzt seit Version~4.0.0). \texttt{access} nimmt Einträge wie \texttt{\{to: Server, ports: [443, 22/tcp]\}} aufnehmen. Satz~\ref{satz:firewall} bleibt gültig, wenn man die Bedingung der Freigaberegeln um Protokoll und Port ergänzt: Das Urteil ist dann genau dann \textsc{accept}, wenn ein Paar $(i,j)$ mit passendem Dienst existiert. Das ist als Satz~\ref{satz:ports-urteil} bewiesen; Entwurf und Beweise stehen in Kapitel~\ref{sec:ports}, die Umsetzung liegt in \texttt{ports.py}.
 	\item \textbf{Mengen und Objektgruppen} (umgesetzt, \texttt{--group-rules}). Die Gruppierung aus Satz~\ref{satz:gruppe} wird als \texttt{nftables}-Menge, \texttt{ipset} oder \texttt{object-group} (Cisco) ausgegeben.
 	\item \textbf{Protokollierung} verworfener Pakete (umgesetzt, \texttt{--log-drops}); zeitlich begrenzte Freigaben sind offen.
 	\item \textbf{Rückübersetzung als Test} (umgesetzt, \texttt{--roundtrip}, \code{roundtrip.py}). Die erzeugten Regeln werden wieder eingelesen und die daraus rekonstruierte Menge $P'$ mit $P$ verglichen; zusätzlich muss das Regelwerk alles Übrige verwerfen (Default-Deny erkannt). Gilt immer $P' = P$, stimmen Generator und Leser mit Satz~\ref{satz:firewall} überein. Das ist ein Test und kein Beweis, denn gleiche Fehler in beiden Teilen bleiben unentdeckt.
@@ -2038,7 +2041,7 @@ Bestandsnetze, Pools & mittel & Praxistauglichkeit & Satz~\ref{satz:bestand} & u
 Inkrementelle Planung & mittel & keine Umnummerierung & Korollar~\ref{kor:erweiterung} & umgesetzt \\
 Hierarchie & mittel & Routen-Aggregation & Satz~\ref{satz:hier} & umgesetzt \\
 Eigenschaftsbasierte Tests & mittel & Gewissheit & Abschnitt~\ref{sec:tests} & umgesetzt \\
-Ports & hoch & Funktionsumfang & Satz~\ref{satz:ports-urteil} & Entwurf \\
+Ports & hoch & Funktionsumfang & Satz~\ref{satz:ports-urteil} & umgesetzt \\
 Weitere Plattformen & hoch & Funktionsumfang & --- & offen \\
 Formale Verifikation (SMT, Beweisassistent) & hoch & Gewissheit & Satz~\ref{satz:luecke} & offen \\
 \bottomrule
@@ -2047,7 +2050,7 @@ Formale Verifikation (SMT, Beweisassistent) & hoch & Gewissheit & Satz~\ref{satz
 
 \section{Implementierungshinweis}
 
-Der Subgraph Algorithmus ist verfügbar unter \url{https://github.com/naphz86/subgraph} \cite{epp26}. Der Code von \texttt{sbntgg} befindet sich im Projekt \texttt{sbntgg} (Paket \texttt{subnetplan}, Version 1.1.0, Python 3.11 oder neuer, Abhängigkeiten PyYAML, NumPy und das Paket \texttt{subgraph}, das \texttt{pip} über die \texttt{pyproject.toml} installiert). Installation und Aufruf:
+Der Subgraph Algorithmus ist verfügbar unter \url{https://github.com/naphets86/subgraph} \cite{epp26}. Der Code des Subnetz Algorithmus befindet sich im Projekt \texttt{sbntgg} (\url{https://github.com/naphets86/sbntgg}; Paket \texttt{subnetplan}, Version 4.0.0, Python 3.11 oder neuer, Abhängigkeiten PyYAML, NumPy, FastAPI, Uvicorn und das Paket \texttt{subgraph}, das \texttt{pip} über die \texttt{pyproject.toml} installiert). Installation und Aufruf:
 \begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\scriptsize]
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
@@ -2073,7 +2076,7 @@ pytest
 \bibitem{knuth} D.~E.~Knuth: \emph{The Art of Computer Programming, Vol.~1: Fundamental Algorithms}, Abschnitt~2.5 (dynamische Speicherzuteilung, Buddy-System), Addison-Wesley.
 \bibitem{gj79} M.~R.~Garey, D.~S.~Johnson: \emph{Computers and Intractability}, W.~H.~Freeman, 1979 (Problem GT18).
 \bibitem{orlin77} J.~Orlin: \emph{Contentment in graph theory: covering graphs with cliques}, Indagationes Mathematicae 80, 1977.
-\bibitem{epp26} S.~Epp: \emph{Der Subgraph Algorithmus}, 2026. Quelle: \url{https://github.com/naphz86/subgraph}.
+\bibitem{epp26} S.~Epp: \emph{Der Subgraph Algorithmus}, 2026. Quelle: \url{https://github.com/naphets86/subgraph}.
 \end{thebibliography}
 
 \end{document}

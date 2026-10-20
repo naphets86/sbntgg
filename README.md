@@ -1,34 +1,48 @@
 # sbntgg
 
-sbntgg teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf (inklusive VLAN-IDs, Gateways und Wachstumsreserve) und erzeugt aus der Zugriffsmatrix optional Firewall-Regeln für iptables, nftables und Cisco-ACLs.
+**sbntgg** ist die Implementierung des **Subnetz Algorithmus** (Paket und Kommandozeilenprogramm `subnetplan`, Version 4.0.0). Er teilt einen zugewiesenen IPv4- oder IPv6-Adressbereich automatisch in überlappungsfreie Subnetze für Mitarbeiter- und Ressourcengruppen auf (inklusive VLAN-IDs, Gateways und Wachstumsreserve) und erzeugt aus der Zugriffsmatrix optional Firewall-Regeln für iptables, nftables und Cisco-ACLs.
 
-[![Version](https://img.shields.io/badge/Version-3.0.0-blue)](pyproject.toml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-562%20passed-4c1)](tests/)
-[![Test Coverage](https://img.shields.io/badge/Test%20Coverage-100%25-brightgreen)](doc/coverage/index.html)
+[![Tests](https://img.shields.io/badge/Tests-354%20passed-4c1)](tests/)
+[![Test Coverage](https://img.shields.io/badge/Test%20Coverage-99%25-brightgreen)](doc/coverage/index.html)
 [![scicov](https://img.shields.io/badge/scicov-10-ff69b4)](doc/coverage/index.html)
 
 ## Inhaltsverzeichnis
 
 - [Überblick](#überblick)
+- [Der Subnetz Algorithmus](#der-subnetz-algorithmus)
 - [Schnellstart](#schnellstart)
 - [Konfiguration](#konfiguration)
 - [Beispielkonfiguration](#beispielkonfiguration)
 - [Berechnungsregeln](#berechnungsregeln)
 - [Ausgabe](#ausgabe)
 - [Firewall-Regeln](#firewall-regeln)
+- [Protokolle und Ports](#protokolle-und-ports)
 - [Projektstruktur](#projektstruktur)
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
 - [JSON API](#json-api)
-- [Neue Funktionen](#neue-funktionen)
+- [Funktionen](#funktionen)
 - [Experimente](#experimente)
 - [Tests](#tests)
+- [Wissenschaftliche Arbeit](#wissenschaftliche-arbeit)
 - [Erwerb](#erwerb)
 
 ## Überblick
 
 `subnetplan` teilt einen zugewiesenen IP-Bereich (IPv4 oder IPv6) automatisch in Subnetze für Mitarbeiter- und Ressourcengruppen auf. Jede Gruppe erhält ein eigenes Subnetz mit VLAN-ID, Gateway und Wachstumsreserve. Aus der Zugriffsmatrix (`access`) lassen sich optional Firewall-Regeln für iptables, nftables oder Cisco-ACLs erzeugen.
+
+## Der Subnetz Algorithmus
+
+Der Subnetz Algorithmus ist ein deterministischer Algorithmus zur Planung von IP-Netzen. Er ordnet die Gruppen nach absteigender Blockgröße (bei gleicher Größe nach `priority`, dann nach der Reihenfolge in der Datei) und legt die Blöcke lückenlos ab der Startadresse des Basisnetzes ab. Die Arbeit `science/sbntgg.tex` beweist unter anderem:
+
+- **Korrektheit:** Alle Subnetze sind ausgerichtet, paarweise überlappungsfrei, liegen im Basisnetz und fassen den Bedarf der Gruppe.
+- **Optimalität:** Die Sortierung „größte Blöcke zuerst“ ist lückenlos und unter allen Anordnungen optimal; passt irgendeine Anordnung ins Basisnetz, passt auch diese.
+- **Freie Bereiche:** Der Rest ist exakt als Binärdarstellung beschrieben; Wachstumsreserven lassen sich ohne Umnummerierung nutzen, sobald ihre Gesamtgröße in den freien Adressraum passt.
+- **Firewall:** Die erzeugten Regeln erlauben genau die in `access` freigegebenen Paare (Default-Deny).
+- **Laufzeit:** Der Kern braucht Θ(n log n) im Vergleichsmodell, die gesamte Planung O(n² + a) (n Gruppen, a Einträge in allen `access`-Listen).
+
+Der Subnetz Algorithmus ist nicht der Subgraph Algorithmus. Dieser ist ein eigenständiges Verfahren (https://github.com/naphets86/subgraph) und wird hier nur für den Richtlinienvergleich (`--compare`) als Abhängigkeit verwendet.
 
 ## Schnellstart
 
@@ -238,6 +252,33 @@ Alles, was nicht in `access` freigegeben ist, wird verworfen. Zugriff auf das ei
 
 Cisco-ACLs sind zustandslos, Rückverkehr braucht passende Gegenregeln. Die erzeugten Regeln sind ein Ausgangspunkt und sollten vor dem Einspielen geprüft werden.
 
+## Protokolle und Ports
+
+Ein Eintrag in `access` darf statt des bloßen Gruppennamens ein Mapping `{to: Gruppe, ports: [...]}` sein. Dann gilt die Freigabe nur für die genannten Dienste; ohne `ports` (bloßer Name) bleiben alle Dienste erlaubt, die Regeln sind dann Zeichen für Zeichen die bisherigen.
+
+```yaml
+access:
+  - to: Server
+    ports: [tcp/22, tcp/443, tcp/8000-8099, icmp]
+  - Drucker
+```
+
+| Angabe | Bedeutung |
+| --- | --- |
+| `tcp/22`, `udp/5000-5010` | einzelner Zielport beziehungsweise Port-Intervall (1 bis 65535) |
+| `tcp`, `udp` | alle Ports des Protokolls |
+| `icmp` (IPv4), `icmpv6` (IPv6) | portlose Protokolle |
+
+- Mehrere Einträge für dasselbe Ziel werden vereinigt; ein Eintrag ohne `ports` macht das Ziel unbeschränkt. Überlappende Portangaben ändern nichts, ergeben aber eine Warnung (`--warnings`).
+- Port 0 ist reserviert und wird in ausdrücklichen Angaben abgelehnt.
+- iptables und Cisco erzeugen je Port-Intervall eine Regel; nftables je Protokoll eine Regel mit Portmenge (`tcp dport { 22, 443, 8000-8099 }`).
+- `--group-rules` gruppiert nach Zielmenge *und* Dienstmenge; `--roundtrip` vergleicht zusätzlich die Dienstmenge jedes Paares.
+- Bei Cisco mit `--cisco-return established` antwortet der Dienstport (`permit tcp <Ziel> eq 22 <Quelle> established`); Freigaben ohne TCP erzeugen keine Rückverkehrszeile.
+- Im Plan-JSON steht `"services": {"Server": ["tcp/22", ...]}` nur bei eingeschränkten Zielen; `--extend` und die Verdopplung erhalten sie.
+- `firewall_verdict(plan, quelle, ziel, service="tcp/443")` und `cisco_verdict(..., service=...)` berechnen das Urteil für einen konkreten Dienst; die API-Anfrage `plans/verdict` kennt dafür das Feld `service`. Die Roundtrip-Antwort enthält je Firewall das Feld `service_mismatch` (Paare, deren Dienstmenge im Regeltext abweicht).
+
+Die Mathematik (Normalform, Zerlegung in höchstens 30 Portblöcke, Lücken, Überlappung, Teilmengenprüfung) steht in `src/ports.py`; ein vollständiges Beispiel in `examples/config.ports.example.yaml`.
+
 ## Projektstruktur
 
 | Pfad | Inhalt |
@@ -253,6 +294,7 @@ Cisco-ACLs sind zustandslos, Rückverkehr braucht passende Gegenregeln. Die erze
 | `src/semantics.py` | Referenzurteile der Regelwerke (Default-Deny, Cisco) |
 | `src/hierarchy.py` | Zweistufige Planung mit Standortblöcken (`site`) |
 | `src/extend.py` | Plan erweitern (`--extend`), Netze an Ort und Stelle verdoppeln |
+| `src/ports.py` | Portmengen, Zerlegung in Portblöcke, Dienstmengen (Kapitel Protokolle und Ports) |
 | `src/roundtrip.py` | Regeln zurücklesen und mit der Zugriffsmatrix vergleichen |
 | `src/verify.py` | Prüfung eines Plans gegen die Sätze der Arbeit |
 | `src/stats.py` | Auslastung, Verschnitt, Poisson-Dimensionierung |
@@ -261,18 +303,18 @@ Cisco-ACLs sind zustandslos, Rückverkehr braucht passende Gegenregeln. Die erze
 | `src/cli.py` | Kommandozeile |
 | `src/experiments.py` | reproduzierbare Experimente (`python -m src.experiments`), nicht Teil der Testabdeckung |
 | `src/results/` | Ergebnisse der Experimente als JSON, dazu `summary.json` |
-| `web/api.py` | FastAPI-JSON-API (Version 3.0.0) für Planung und Auswertung |
+| `web/api.py` | FastAPI-JSON-API (Version 4.0.0) für Planung und Auswertung |
 | `tests/` | pytest-Tests |
-| `science/` | wissenschaftliche Arbeit „Der Subnetting Algorithmus“ (`sbntgg.tex`, `sbntgg.pdf`) |
+| `science/` | wissenschaftliche Arbeit „Der Subnetz Algorithmus“ (`sbntgg.tex`, `sbntgg.pdf`) |
 | `examples/` | Beispielkonfiguration `config.example.yaml` (fünf Gruppen), ausführlich beschrieben im Abschnitt [Beispielkonfiguration](#beispielkonfiguration) |
 | `doc/coverage/` | HTML-Bericht der Testabdeckung (wird beim Testlauf erzeugt) |
-| `pyproject.toml` | Projektmetadaten (Version 3.0.0) sowie pytest- und Coverage-Konfiguration |
+| `pyproject.toml` | Projektmetadaten (Version 4.0.0) sowie pytest- und Coverage-Konfiguration |
 
 ## Voraussetzungen
 
 - Python 3.11 oder neuer
 - PyYAML, NumPy, FastAPI und Uvicorn
-- Das Paket `subgraph` (Subgraph Algorithmus, https://github.com/naphets86/subgraph); wird über die `pyproject.toml` per `pip install` eingebunden und nicht kopiert
+- Das Paket `subgraph` (Subgraph Algorithmus, https://github.com/naphets86/subgraph, eingebunden als `subgraph @ git+https://github.com/naphets86/subgraph.git`); wird über die `pyproject.toml` per `pip install` eingebunden und nicht kopiert
 - Für Tests: `pytest`, `pytest-cov` und `httpx` (wird vom FastAPI-`TestClient` der API-Tests benötigt)
 
 ## Installation
@@ -285,7 +327,7 @@ pip install -e ".[dev]"
 
 ## JSON API
 
-Die API (Version 3.0.0, identisch mit der Projektversion in der `pyproject.toml`) verarbeitet Konfigurationen als JSON und stellt Planberechnung, Erweiterung, Firewall-Regeln,
+Die API (Version 4.0.0, identisch mit der Projektversion in der `pyproject.toml`) verarbeitet Konfigurationen als JSON und stellt Planberechnung, Erweiterung, Firewall-Regeln,
 Verifikation, Statistiken, Warnungen, Roundtrip-Prüfung, Richtlinienvergleich und Zugriffsurteile bereit.
 Sie ist zustandslos: Jede Anfrage enthält ihre Konfiguration, serverseitig wird nichts gespeichert.
 Nach der Installation lässt sie sich mit Uvicorn starten:
@@ -296,7 +338,7 @@ uvicorn web.api:app --reload
 
 Alternativ startet `subnetplan-api` den Server ohne Reload. Standardmäßig lauscht er auf `127.0.0.1:8000`;
 Host und Port können über `SUBNETPLAN_API_HOST` und `SUBNETPLAN_API_PORT` gesetzt werden. Die interaktive
-OpenAPI-Dokumentation liegt unter `http://127.0.0.1:8000/docs` und zeigt dort ebenfalls die API-Version 3.0.0.
+OpenAPI-Dokumentation liegt unter `http://127.0.0.1:8000/docs` und zeigt dort ebenfalls die API-Version 4.0.0.
 
 Planberechnung:
 
@@ -320,25 +362,73 @@ curl -X POST http://127.0.0.1:8000/api/v1/plans \
 | `POST /api/v1/plans/firewall` | Regeltext für `iptables`, `nftables` oder `cisco` erzeugen |
 | `POST /api/v1/plans/roundtrip` | erzeugte Regeln zurücklesen und mit der Zugriffsmatrix vergleichen |
 | `POST /api/v1/plans/compare` | zwei Zugriffspolitiken exakt und mit dem Subgraph Algorithmus vergleichen |
+| `POST /api/v1/plans/compare-services` | Freigaben auf Dienstebene (Protokolle und Ports) je Zugriffspaar vergleichen; Relation `equal`, `a_in_b`, `b_in_a` oder `incomparable` |
 | `POST /api/v1/plans/verdict` | Urteil `accept` oder `drop` für einen Paketfluss (Quell- und Ziel-IP) |
 
 Die `POST`-Endpunkte erwarten `config` (dieselben Schlüssel wie in der Konfigurationsdatei) und optional `overrides`; `compare` nimmt stattdessen `config_a`, `config_b`, `overrides_a` und `overrides_b`, `extend` zusätzlich den bisherigen `plan`. Fachliche Validierungsfehler
 werden mit HTTP 422 als JSON unter `error.type` und `error.message` zurückgegeben; ungültige Feldtypen weist FastAPI ebenfalls mit 422 ab (Schema `detail`). `compare` antwortet mit HTTP 503, wenn der Subgraph Algorithmus nicht verfügbar ist.
 
-## Neue Funktionen
+## Funktionen
+
+Alle Funktionen stehen auf der Kommandozeile (`subnetplan`) und, soweit angegeben, in der [JSON API](#json-api) bereit. Gemeinsam ist ihnen, dass Plan und Firewall-Regeln aus derselben Konfiguration berechnet werden.
+
+### Planung
 
 | Funktion | Konfiguration / Option |
 | --- | --- |
+| Subnetze für Gruppen berechnen (Bedarf, Präfixlänge, Zuteilung, freie Restbereiche) | `base_network`, `groups`, `growth_factor` (`--growth-factor`) |
+| Strategie: größte Blöcke zuerst oder einheitliche Präfixlänge | `allocation_strategy` (`--strategy vlsm\|fixed`), `priority` |
+| Gateway-Adresse am Anfang, am Ende oder keine | `gateway_position` (`--gateway first\|last\|none`) |
+| VLAN-IDs: explizit oder automatisch (10, 20, 30, ...) | Gruppenschlüssel `vlan_id` |
+| Basisnetz überschreiben | `--base-network` |
+| IPv4 und IPv6 | Basisnetz, Pools und Bestand in der gleichen IP-Version |
 | Bestandsnetze, mehrere Pools, feste Netze | `existing`, `pools`, Gruppenschlüssel `network` |
 | Mindestblockgröße, eigener Overhead | `max_prefix` (`--max-prefix`), Gruppenschlüssel `overhead` |
-| Zweistufige Planung | Gruppenschlüssel `site` |
-| Plan erweitern | `--extend plan.json neue.yaml` |
+| Zweistufige Planung mit Standortblöcken | Gruppenschlüssel `site` |
+| Plan erweitern, ohne vorhandene Netze zu verschieben (auch Verdopplung an Ort und Stelle) | `--extend plan.json neue.yaml` |
+
+### Ausgabe
+
+| Funktion | Option |
+| --- | --- |
+| Tabelle (Standard), CSV oder JSON | `--format table\|csv\|json` |
+| Plan in eine Datei schreiben | `-o`, `--output` |
+| Belegung des Basisnetzes und freie Restbereiche | immer Teil der Ausgabe |
+
+### Firewall-Regeln
+
+| Funktion | Option |
+| --- | --- |
+| Regeln für iptables, nftables oder Cisco-ACL (Default-Deny) | `--firewall iptables\|nftables\|cisco` |
+| Regeln in eine Datei schreiben | `--firewall-output` |
 | Regelgruppierung (nftables-Mengen, ipset, Cisco-Objektgruppen) | `--group-rules` |
-| Rückverkehr bei Cisco, ASCII-Namen, Logging, ICMPv6 | `--cisco-return established`, `--ascii-names`, `--log-drops`, `--icmpv6 TYPEN` |
+| Rückverkehr bei Cisco | `--cisco-return established` |
+| ASCII-Namen in ACLs und Kommentaren | `--ascii-names` |
+| verworfene Pakete protokollieren | `--log-drops` |
+| ICMPv6-Typen weiterleiten | `--icmpv6 TYPEN` |
 | iptables-Skript wiederholbar ausführen | Standard, abschaltbar mit `--no-idempotent` |
-| Prüfungen und Berichte (auf stderr) | `--verify`, `--roundtrip`, `--warnings` (mit `--warn-threshold` und `--vpn-network`), `--stats`, `--compare ANDERE.yaml` |
+
+### Protokolle und Ports
+
+Freigaben lassen sich auf Protokolle und Zielports beschränken (`access` mit `{to: Gruppe, ports: [...]}`); Einzelheiten stehen im Abschnitt [Protokolle und Ports](#protokolle-und-ports).
+
+### Prüfungen und Berichte
+
+Die Berichte erscheinen auf stderr, damit die Standardausgabe maschinenlesbar bleibt.
+
+| Funktion | Option |
+| --- | --- |
+| Plan gegen die Sätze der Arbeit prüfen (Fehlercode 1 bei Verletzung) | `--verify` |
+| erzeugte Regeln zurücklesen und mit der Zugriffsmatrix vergleichen | `--roundtrip` |
+| Hinweise zu Adressbereich, VPN-Überschneidung und Auslastung | `--warnings` (mit `--warn-threshold`, Standard 80 %, und `--vpn-network`) |
+| Auslastung, Bedarf und internen Verschnitt | `--stats` |
+| Zugriffsrichtlinien zweier Konfigurationen vergleichen | `--compare ANDERE.yaml` |
 
 `--compare` vergleicht die Zugriffsrichtlinien exakt und zusätzlich mit dem Subgraph Algorithmus. Dessen Ergebnis ist eine Heuristik und wird gesondert ausgewiesen; maßgeblich ist die exakte Prüfung.
+
+### JSON API und Experimente
+
+Planberechnung, Erweiterung, Firewall-Regeln, Verifikation, Statistiken, Warnungen, Roundtrip, Richtlinien- und Dienstvergleich sowie Paketurteile sind als Endpunkte der [JSON API](#json-api) verfügbar. Die reproduzierbaren Versuche zur Arbeit starten mit `python -m src.experiments` (siehe [Experimente](#experimente)).
 
 ## Experimente
 
@@ -372,9 +462,18 @@ pytest
 
 Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`. Die Tests umfassen auch die JSON API (`tests/test_web_api.py`, mit dem FastAPI-`TestClient`). Ausgenommen von der Messung sind `tests/`, `doc/` und `src/experiments.py`.
 
+## Wissenschaftliche Arbeit
+
+Die Arbeit „Der Subnetz Algorithmus“ (`science/sbntgg.tex`, übersetzte Fassung `science/sbntgg.pdf`) definiert das Problem formal, beweist die Aussagen aus dem Abschnitt [Der Subnetz Algorithmus](#der-subnetz-algorithmus) und wertet die Experimente aus. Sie wird im Ordner `science/` mit `latexmk -pdf sbntgg.tex` übersetzt; benötigt werden unter anderem die LaTeX-Pakete `babel` (german), `lmodern`, `amsmath`, `tikz` und `listings`.
+
+| Projekt | Rolle |
+| --- | --- |
+| [sbntgg](https://github.com/naphets86/sbntgg) | Subnetz Algorithmus (dieses Projekt, Paket `subnetplan`) |
+| [subgraph](https://github.com/naphets86/subgraph) | Subgraph Algorithmus, Abhängigkeit für den Richtlinienvergleich |
+
 ## Erwerb
 
-Der Preis für diese Software beträgt 11.456.789,00 EUR
+Der Preis für diese Software beträgt 17.456.789,00 EUR
 
 ### Zahlungsinformationen
 

@@ -1,4 +1,4 @@
-"""Experimente zur Arbeit "Der Subnetting Algorithmus sbntgg".
+"""Experimente zur Arbeit "Der Subnetz Algorithmus sbntgg".
 
 Jedes Experiment prüft oder misst eine Aussage der Arbeit an zufälligen Eingaben und schreibt
 sein Ergebnis als JSON-Datei nach ``src/results/<name>.json``. Zusätzlich entsteht

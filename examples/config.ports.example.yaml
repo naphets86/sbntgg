@@ -1,0 +1,30 @@
+# Beispielkonfiguration mit Protokollen und Ports (Kapitel "Erweiterung um Protokolle und Ports")
+base_network: 10.20.0.0/16
+growth_factor: 1.25
+allocation_strategy: vlsm
+gateway_position: first
+
+groups:
+  - name: Server
+    hosts: 40
+    vlan_id: 100
+    access: [Drucker]            # bloßer Name: alle Dienste (wie bisher)
+
+  - name: Entwicklung
+    hosts: 120
+    access:
+      - to: Server               # nur diese Dienste, alles andere wird verworfen
+        ports: [tcp/22, tcp/443, tcp/8000-8099, icmp]
+      - to: Drucker
+        ports: [tcp/631, tcp/9100]
+
+  - name: HR
+    hosts: 25
+    access:
+      - {to: Drucker, ports: [tcp/631]}
+
+  - name: Drucker
+    hosts: 12
+
+  - name: Gäste
+    hosts: 60

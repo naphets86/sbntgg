@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from .blocks import free_ranges_in_pool, maximal_free_blocks, pack, packable
 from .models import Group, IPNetwork, Plan, PlanConfig, PlanError, Subnet
 from .planner import _build_subnet, _ordered, assign_vlans, group_prefix
+from .ports import ServiceSet, parse_services
 
 
 def plan_from_json(text: str) -> Plan:
@@ -29,6 +30,14 @@ def plan_from_json(text: str) -> Plan:
     except (ValueError, KeyError, TypeError) as exc:
         raise PlanError(f"Plan-Datei ist kein gültiger Plan im JSON-Format: {exc}") from exc
     return Plan(base, subnets, free, pools, reserved)
+
+
+def _services_from_dict(d: Dict[str, Any]) -> Tuple[Tuple[str, ServiceSet], ...]:
+    """Liest ``"services": {"Ziel": ["tcp/22", ...]}`` aus einem Subnetz-Eintrag des Plan-JSON."""
+    raw = d.get("services", {})
+    if not isinstance(raw, dict):
+        raise PlanError("services muss ein Mapping von Zielgruppe auf Dienstliste sein")
+    return tuple((target, parse_services(specs, f"services {target}")[0]) for target, specs in raw.items())
 
 
 def _subnet_from_dict(d: Dict[str, Any]) -> Subnet:
@@ -47,6 +56,7 @@ def _subnet_from_dict(d: Dict[str, Any]) -> Subnet:
         usable_hosts=int(d["usable_hosts"]),
         access=tuple(d.get("access", [])),
         site=d.get("site"),
+        services=_services_from_dict(d),
     )
 
 
@@ -161,7 +171,8 @@ def double_in_place(plan: Plan, group: str) -> Plan:
     gateway_position = _infer_gateway_position(subnet)
     overhead = subnet.network.num_addresses - subnet.usable_hosts
     template = Group(
-        subnet.group, subnet.requested_hosts, subnet.vlan_id, subnet.access, 0, overhead, None, subnet.site
+        subnet.group, subnet.requested_hosts, subnet.vlan_id, subnet.access, 0, overhead, None, subnet.site,
+        subnet.services,
     )
     grown = _build_subnet(template, subnet.vlan_id, parent, gateway_position)
     subnets = tuple(grown if s.group == group else s for s in plan.subnets)

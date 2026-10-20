@@ -4,7 +4,7 @@ from __future__ import annotations
 import ipaddress
 from typing import List, Optional, Sequence
 
-from .access import asymmetric_pairs
+from .access import asymmetric_pairs, pair_services
 from .models import IPNetwork, Plan, PlanConfig
 
 PRIVATE_V4 = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
@@ -40,8 +40,14 @@ def plan_warnings(
     if plan.utilization >= threshold:
         warnings.append(f"Auslastung {plan.utilization:.2f} % erreicht den Schwellwert {threshold:g} %")
     if firewall == "cisco":
+        by_name = {sub.group: sub for sub in plan.subnets}
         for src, dst in asymmetric_pairs(plan):
-            if cisco_return == "established":
+            sigma = pair_services(by_name[src], dst)
+            if cisco_return == "established" and sigma is not None and not sigma.intervals("tcp"):
+                warnings.append(
+                    f"Rückverkehr {dst} -> {src}: die Freigabe enthält kein TCP, 'established' erzeugt keine Zeile"
+                )
+            elif cisco_return == "established":
                 warnings.append(
                     f"Rückverkehr {dst} -> {src} ist nur für TCP über 'established' abgedeckt (UDP und ICMP nicht)"
                 )

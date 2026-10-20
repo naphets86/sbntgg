@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import yaml
 
-from .access import clean_access
+from .access import clean_access, drop_unrestricted_services
+from .ports import ServiceSet, parse_services
 from .models import (
     GATEWAY_POSITIONS,
     GROUP_KEYS,
@@ -46,7 +47,49 @@ def _parse_base_network(value: Any) -> IPNetwork:
     return _parse_network(value, "base_network")
 
 
-def _parse_group(raw: Any, index: int) -> Group:
+ACCESS_ENTRY_KEYS = frozenset({"to", "ports"})
+
+
+def _parse_access(raw: Any, where: str) -> Tuple[List[str], List[Tuple[str, ServiceSet]], List[str]]:
+    """Liest ``access``: Gruppennamen oder Einträge ``{to: Gruppe, ports: [tcp/22, ...]}``.
+
+    Ein Name ohne ``ports`` erlaubt alle Dienste (das bisherige Verhalten). Rückgabe: die Namen
+    in Dateireihenfolge (auch Wiederholungen, sie bereinigt ``clean_access``), die Einschränkungen
+    je eingeschränktem Eintrag und Warnungen zu überlappenden Portangaben.
+    """
+    if not isinstance(raw, list):
+        raise PlanError(f"{where}: 'access' muss eine Liste von Gruppennamen sein")
+    names: List[str] = []
+    services: List[Tuple[str, ServiceSet]] = []
+    warnings: List[str] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            names.append(entry.strip())
+            continue
+        if not isinstance(entry, dict):
+            raise PlanError(
+                f"{where}: 'access' muss eine Liste von Gruppennamen sein "
+                "(oder Einträge der Form {to: Gruppe, ports: [tcp/443]})"
+            )
+        unknown = set(entry) - ACCESS_ENTRY_KEYS
+        if unknown:
+            raise PlanError(f"{where}: unbekannte Schlüssel im access-Eintrag {sorted(map(str, unknown))}")
+        target = entry.get("to")
+        if not isinstance(target, str) or not target.strip():
+            raise PlanError(f"{where}: im access-Eintrag fehlt 'to' (Name der Zielgruppe)")
+        target = target.strip()
+        if "ports" not in entry:
+            names.append(target)  # wie ein bloßer Gruppenname: alle Dienste
+            continue
+        ports = entry["ports"]
+        sigma, warns = parse_services([ports] if isinstance(ports, str) else ports, f"{where} -> {target}")
+        names.append(target)
+        services.append((target, sigma))
+        warnings.extend(warns)
+    return names, services, warnings
+
+
+def _parse_group(raw: Any, index: int, warnings: Optional[List[str]] = None) -> Group:
     where = f"Gruppe #{index}"
     if not isinstance(raw, dict):
         raise PlanError(f"{where}: Mapping erwartet, erhalten {type(raw).__name__}")
@@ -70,9 +113,9 @@ def _parse_group(raw: Any, index: int) -> Group:
     vlan_id = None if vlan_raw is None else _as_int(vlan_raw, f"{where}: vlan_id", VLAN_MIN, VLAN_MAX)
     priority = _as_int(raw.get("priority", 0), f"{where}: priority", 0)
 
-    access = raw.get("access", [])
-    if not isinstance(access, list) or not all(isinstance(a, str) for a in access):
-        raise PlanError(f"{where}: 'access' muss eine Liste von Gruppennamen sein")
+    access, services, port_warnings = _parse_access(raw.get("access", []), where)
+    if warnings is not None:
+        warnings.extend(port_warnings)
 
     overhead_raw = raw.get("overhead")
     overhead = None if overhead_raw is None else _as_int(overhead_raw, f"{where}: overhead", 0)
@@ -88,7 +131,9 @@ def _parse_group(raw: Any, index: int) -> Group:
                 "(erlaubt: Buchstaben, Ziffern, '_', '-', Leerzeichen)"
             )
         site = site_raw.strip()
-    return Group(name, hosts, vlan_id, tuple(a.strip() for a in access), priority, overhead, network, site)
+    return Group(
+        name, hosts, vlan_id, tuple(access), priority, overhead, network, site, tuple(services)
+    )
 
 
 def _check_groups(groups: Sequence[Group]) -> None:
@@ -172,15 +217,20 @@ def build_config(raw: Any, overrides: Optional[Dict[str, Any]] = None) -> PlanCo
     raw_groups = data.get("groups")
     if not isinstance(raw_groups, list) or not raw_groups:
         raise PlanError("'groups' muss eine nicht-leere Liste sein")
-    groups = tuple(_parse_group(g, i) for i, g in enumerate(raw_groups, start=1))
+    port_warnings: List[str] = []
+    groups = tuple(_parse_group(g, i, port_warnings) for i, g in enumerate(raw_groups, start=1))
     _check_groups(groups)
     for g in groups:
         if g.network is not None and g.network.version != base.version:
             raise PlanError(f"Gruppe {g.name!r}: network {g.network} hat eine andere IP-Version als {base}")
+        for target, sigma in g.services:
+            sigma.validate_version(base.version, f"Gruppe {g.name!r} -> {target}")
 
     groups, warnings = clean_access(groups)
+    groups = drop_unrestricted_services(groups, base.version)
     return PlanConfig(
-        base, groups, float(growth), strategy, gateway, max_prefix, pools, existing, warnings
+        base, groups, float(growth), strategy, gateway, max_prefix, pools, existing,
+        tuple(warnings) + tuple(port_warnings),
     )
 
 

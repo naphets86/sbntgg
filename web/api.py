@@ -11,12 +11,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from subnetplan.access import service_differences, services_included
 from subnetplan.checks import plan_warnings
 from subnetplan.config import build_config, build_extension
 from subnetplan.extend import extend_plan, plan_from_json
 from subnetplan.firewall import FirewallOptions, render_firewall
 from subnetplan.models import FIREWALLS, FORMATS, GATEWAY_POSITIONS, STRATEGIES, Plan, PlanError
 from subnetplan.planner import plan_subnets
+from subnetplan.ports import ServiceSet
 from subnetplan.render import render_json
 from subnetplan.roundtrip import check_roundtrip
 from subnetplan.semantics import cisco_verdict, firewall_verdict, locate
@@ -57,7 +59,7 @@ app = FastAPI(
     Der Richtlinienvergleich enthält eine exakte Prüfung und zusätzlich einen heuristischen
     Subgraph-Vergleich; `subgraph_agrees` zeigt, ob beide Entscheidungen übereinstimmen.
     """,
-    version="3.0.0",
+    version="4.0.0",
     openapi_tags=[
         {"name": "meta", "description": "Status und zulässige Konfigurationsoptionen."},
         {"name": "plans", "description": "Subnetzpläne berechnen oder ohne Verschieben bestehender Netze erweitern."},
@@ -109,6 +111,7 @@ class SubnetResponse(BaseModel):
     requested_hosts: int = Field(description="Angeforderte Host-Anzahl der Gruppe.", examples=[120])
     access: list[str] = Field(description="Gruppen, zu denen neue Verbindungen erlaubt werden.", examples=[["Drucker"]])
     site: str | None = Field(default=None, description="Standortname bei hierarchischer Planung.", examples=["Berlin"])
+    services: dict[str, list[str]] | None = Field(default=None, description="Auf Protokolle und Ports eingeschränkte Freigaben je Zielgruppe; Ziele ohne Eintrag sind für alle Dienste freigegeben.", examples=[{"Server": ["tcp/22", "tcp/443"]}])
 
 
 class PlanResponse(BaseModel):
@@ -159,10 +162,25 @@ class RoundtripCheck(BaseModel):
     extra: list[NetworkPair] = Field(description="Zusätzliche Zugriffspaare, die der Regeltext erlauben würde.")
     default_deny: bool = Field(description="Gibt an, ob der Regeltext nicht ausdrücklich erlaubten Verkehr verwirft.")
     returns: list[NetworkPair] = Field(description="Gesondert erkannte Cisco-Rückverkehrsregeln.")
+    service_mismatch: list[NetworkPair] = Field(default_factory=list, description="Zugriffspaare, bei denen die aus dem Regeltext rekonstruierte Dienstmenge (Protokolle und Ports) von der Konfiguration abweicht.")
 
 
 class RoundtripResponse(BaseModel):
     results: dict[str, RoundtripCheck] = Field(description="Prüfergebnis je angefordertem Firewall-System.")
+
+
+class ServiceDifference(BaseModel):
+    source: str = Field(description="Quellgruppe des Zugriffspaares.", examples=["Entwicklung"])
+    target: str = Field(description="Zielgruppe des Zugriffspaares.", examples=["Server"])
+    a: list[str] = Field(description="Freigegebene Dienste in Plan A; `all` bedeutet ohne Einschränkung, eine leere Liste keine Freigabe.", examples=[["tcp/22", "tcp/443"]])
+    b: list[str] = Field(description="Freigegebene Dienste in Plan B; `all` bedeutet ohne Einschränkung, eine leere Liste keine Freigabe.", examples=[["all"]])
+
+
+class ServiceCompareResponse(BaseModel):
+    relation: Literal["equal", "a_in_b", "b_in_a", "incomparable"] = Field(description="Exakte Relation der Freigaben auf Dienstebene: `a_in_b` heißt, jede Freigabe von A (Paar und Dienst) ist auch in B erlaubt.")
+    a_in_b: bool = Field(description="Ob jede Freigabe von A auch in B erlaubt ist.")
+    b_in_a: bool = Field(description="Ob jede Freigabe von B auch in A erlaubt ist.")
+    differences: list[ServiceDifference] = Field(description="Zugriffspaare mit unterschiedlicher Dienstmenge; bei Gleichheit leer.")
 
 
 class CompareResponse(BaseModel):
@@ -272,6 +290,7 @@ class VerdictRequest(ConfigRequest):
     target: str = Field(description="Zu prüfende Ziel-IP-Adresse, nicht CIDR-Netz.", examples=["10.20.1.20"])
     state: Literal["new", "established"] = Field(default="new", description="`new` prüft die Zugriffsmatrix; `established` wird in der zustandsbehafteten Firewall-Semantik angenommen.")
     ingress_group: str | None = Field(default=None, description="Optionaler Gruppenname, um zusätzlich das Urteil der eingehenden Cisco-ACL dieser Gruppe zu berechnen.", examples=["Server"])
+    service: str | None = Field(default=None, description="Optionaler Zieldienst des Pakets, z. B. `tcp/443`, `udp/53` oder `icmp`. Ohne Angabe genügt irgendeine Freigabe des Gruppenpaares.", examples=["tcp/443"])
 
 
 def _make_plan(config: dict[str, Any], overrides: dict[str, Any] | None = None) -> tuple[Any, Plan]:
@@ -458,6 +477,7 @@ def roundtrip(request: RoundtripRequest) -> dict[str, Any]:
             "extra": _pair_payload(result.extra),
             "default_deny": result.default_deny,
             "returns": _pair_payload(result.returns),
+            "service_mismatch": _pair_payload(result.service_mismatch),
         }
     return {"results": results}
 
@@ -484,6 +504,36 @@ def compare(request: CompareRequest) -> dict[str, Any]:
     return asdict(compare_policies(plan_a, plan_b))
 
 
+def _service_payload(sigma: ServiceSet) -> list[str]:
+    return ["all"] if sigma == ServiceSet.everything() else list(sigma.specs())
+
+
+@app.post(
+    f"{API_PREFIX}/plans/compare-services",
+    tags=["analysis"],
+    summary="Freigegebene Dienste zweier Pläne vergleichen",
+    description="Berechnet zwei Pläne und vergleicht je Zugriffspaar die freigegebenen Protokolle und Ports exakt (Teilmengenprüfung je Protokoll). Ein Paar ohne Einschränkung gibt alle Dienste frei, ein Paar ohne Freigabe keinen. `relation` ist `equal`, `a_in_b`, `b_in_a` oder `incomparable`; `differences` nennt die Paare mit unterschiedlicher Dienstmenge. Die Gruppen werden über ihre Namen zugeordnet.",
+    response_model=ServiceCompareResponse,
+    responses=COMMON_RESPONSES,
+)
+def compare_services(request: CompareRequest) -> dict[str, Any]:
+    """Vergleicht die Dienstmengen aller Zugriffspaare zweier Konfigurationen."""
+    _, plan_a = _make_plan(request.config_a, request.overrides_a)
+    _, plan_b = _make_plan(request.config_b, request.overrides_b)
+    a_in_b = services_included(plan_a, plan_b)
+    b_in_a = services_included(plan_b, plan_a)
+    relation = "equal" if a_in_b and b_in_a else "a_in_b" if a_in_b else "b_in_a" if b_in_a else "incomparable"
+    return {
+        "relation": relation,
+        "a_in_b": a_in_b,
+        "b_in_a": b_in_a,
+        "differences": [
+            {"source": src, "target": dst, "a": _service_payload(sa), "b": _service_payload(sb)}
+            for src, dst, sa, sb in service_differences(plan_a, plan_b)
+        ],
+    }
+
+
 @app.post(
     f"{API_PREFIX}/plans/verdict",
     tags=["analysis"],
@@ -497,12 +547,12 @@ def verdict(request: VerdictRequest) -> dict[str, Any]:
     """Berechnet Firewall- und optional Cisco-Urteile für einen konkreten IP-Paketfluss."""
     _, plan = _make_plan(request.config, request.overrides)
     result = {
-        "firewall": firewall_verdict(plan, request.source, request.target, request.state),
+        "firewall": firewall_verdict(plan, request.source, request.target, request.state, request.service),
         "source_group": (subnet.group if (subnet := locate(plan, request.source)) else None),
         "target_group": (subnet.group if (subnet := locate(plan, request.target)) else None),
     }
     if request.ingress_group is not None:
-        result["cisco"] = cisco_verdict(plan, request.ingress_group, request.source, request.target)
+        result["cisco"] = cisco_verdict(plan, request.ingress_group, request.source, request.target, request.service)
     return result
 
 

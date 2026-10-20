@@ -66,6 +66,18 @@ def verify_plan(plan: Plan, cfg: Optional[PlanConfig] = None) -> List[str]:
         if not (s.network.network_address <= s.first_host <= s.last_host <= s.network.broadcast_address):
             problems.append(f"Lemma Nutzbare Hosts: {s.group}: Host-Bereich liegt außerhalb von {s.network}")
 
+    # Dienstbeschränkungen (Kapitel "Protokolle und Ports"): nur für Ziele in access, passend zur IP-Version
+    for s in subnets:
+        for target, sigma in s.services:
+            if target not in s.access or target == s.group:
+                problems.append(f"Ports: {s.group}: Dienstmenge für {target!r}, das nicht in access steht")
+            if sigma.is_empty:
+                problems.append(f"Ports: {s.group} -> {target}: leere Dienstmenge")
+            try:
+                sigma.validate_version(s.network.version)
+            except PlanError as exc:
+                problems.append(f"Ports: {s.group} -> {target}: {exc}")
+
     # Freie Bereiche (F): gleich den maximalen freien Blöcken, Summe und Eindeutigkeit
     blocks = [net for _, net in plan.site_blocks] if plan.site_blocks else [s.network for s in subnets]
     occupied = blocks + list(plan.reserved)
