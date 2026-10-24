@@ -705,6 +705,7 @@ Die Sequenzprüfung hat zwei Testdateien: `tests/test_sequence.py` prüft den Ke
 ```bash
 pytest tests/test_sequence.py tests/test_web_sequence.py
 ``` Ausgenommen von der Messung sind `tests/`, `doc/` und `src/experiments.py`.
+```
 
 ## Wissenschaftliche Arbeit
 
@@ -717,7 +718,7 @@ Die Arbeit „Der Subnetz Algorithmus“ (`science/sbntgg.tex`, übersetzte Fass
 
 ## Erwerb
 
-Der Preis für diese Software beträgt 17.456.789,00 EUR
+Der Preis für diese Software beträgt 31.456.789,00 EUR
 
 ### Zahlungsinformationen
 
