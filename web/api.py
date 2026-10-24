@@ -4,10 +4,11 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import time
 from dataclasses import asdict
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +23,7 @@ from subnetplan.ports import ServiceSet
 from subnetplan.render import render_json
 from subnetplan.roundtrip import check_roundtrip
 from subnetplan.semantics import cisco_verdict, firewall_verdict, locate
+from subnetplan.sequence import DEFAULT_GRAPH, SequenceError, advance, load_graph
 from subnetplan.stats import plan_statistics
 from subnetplan.verify import verify_plan
 
@@ -52,6 +54,17 @@ app = FastAPI(
     `{"error":{"type":"plan_error","message":"..."}}`. Ungültige JSON-Feldtypen
     werden von FastAPI ebenfalls mit HTTP 422 abgewiesen.
 
+    ## Sequenzen (optional)
+
+    Ein einzelner Request ist zustandslos. Eine **Folge** von Requests (planen, prüfen,
+    Regeln erzeugen, zurückprüfen, erweitern) ist ein Prozess mit Reihenfolge. Wer das
+    wünscht, sendet die Kopfzeilen `X-Sequence-Start` (Kennung, nur im ersten Schritt),
+    `X-Sequence-Token` (zuletzt erhaltenes Token) und `X-Sequence-End: true` (letzter
+    Schritt). Die API prüft dann zustandslos, ob der Request an dieser Stelle der Folge
+    zulässig ist, und antwortet bei einem Verstoß mit HTTP **409** und dem Schema
+    `{"status":409,"error":{"type":"sequence/...","message":"..."}}`. Ohne diese
+    Kopfzeilen verhält sich jeder Endpunkt wie bisher.
+
     ## Sicherheitshinweis
 
     Die Firewall-Ausgaben verwenden standardmäßig Default-Deny. Sie sind Textvorlagen zur
@@ -59,7 +72,7 @@ app = FastAPI(
     Der Richtlinienvergleich enthält eine exakte Prüfung und zusätzlich einen heuristischen
     Subgraph-Vergleich; `subgraph_agrees` zeigt, ob beide Entscheidungen übereinstimmen.
     """,
-    version="4.0.0",
+    version="4.1.0",
     openapi_tags=[
         {"name": "meta", "description": "Status und zulässige Konfigurationsoptionen."},
         {"name": "plans", "description": "Subnetzpläne berechnen oder ohne Verschieben bestehender Netze erweitern."},
@@ -210,7 +223,11 @@ COMMON_RESPONSES = {
             "plan_error": {"summary": "Fachlicher Planungsfehler", "value": {"error": {"type": "plan_error", "message": "Pflichtfeld 'base_network' fehlt"}}},
             "request_validation": {"summary": "Fehlerhafte Request-Validierung", "value": {"detail": [{"loc": ["body", "firewall"], "msg": "Field required", "type": "missing"}]}},
         }}},
-    }
+    },
+    409: {
+        "model": ErrorResponse,
+        "description": "Sequenzfehler (nur mit Kopfzeilen `X-Sequence-*`): unzulässiges Betreten (`sequence/entry_invalid`), unzulässiger Übergang (`sequence/transition_invalid`), unzulässiges Ende (`sequence/end_invalid`), abgelaufene Frist (`sequence/abandoned_late`) oder ungültiges Token (`sequence/context_invalid`). Die Antwort nennt den letzten gültigen Schritt und die zulässigen Nachfolger.",
+    },
 }
 
 
@@ -316,6 +333,56 @@ def _pair_payload(pairs: Any) -> list[dict[str, str]]:
     return [{"source": str(source), "target": str(target)} for source, target in sorted(pairs, key=lambda pair: (str(pair[0]), str(pair[1])))]
 
 
+SEQUENCE_KEY: bytes | None = os.getenv("SUBNETPLAN_SEQUENCE_KEY", "").encode() or None
+SEQUENCE_TTL = int(os.getenv("SUBNETPLAN_SEQUENCE_TTL", "600"))
+_graph_path = os.getenv("SUBNETPLAN_SEQUENCE_GRAPH")
+SEQUENCE_GRAPH = load_graph(_graph_path) if _graph_path else DEFAULT_GRAPH
+_now = time.time
+
+
+def sequence_guard(node: str):
+    """Abhängigkeit je Endpunkt: prüft die optionale Sequenz zustandslos über das Token im Header.
+
+    Ohne `X-Sequence-*`-Kopfzeilen geschieht nichts. Ein gültiger Schritt liefert das nächste
+    Token in `X-Sequence-Token` (nach `X-Sequence-End: true` keines mehr). Schlägt der Endpunkt
+    selbst fehl (zum Beispiel 422), wird kein neues Token ausgegeben: der Schritt zählt nicht.
+    """
+
+    def guard(
+        response: Response,
+        x_sequence_start: str | None = Header(default=None, description="Kennung der Folge; nur im ersten Schritt."),
+        x_sequence_token: str | None = Header(default=None, description="Token aus der Antwort des vorigen Schritts."),
+        x_sequence_end: str | None = Header(default=None, description="`true` markiert diesen Schritt als letzten der Folge."),
+    ) -> None:
+        if x_sequence_start is None and x_sequence_token is None and x_sequence_end is None:
+            return
+        if SEQUENCE_KEY is None:
+            raise SequenceError(
+                "not_configured",
+                "Die Sequenzprüfung ist nicht eingerichtet (SUBNETPLAN_SEQUENCE_KEY fehlt)",
+                status=503,
+            )
+        result = advance(
+            SEQUENCE_GRAPH,
+            SEQUENCE_KEY,
+            node,
+            start=x_sequence_start,
+            token=x_sequence_token,
+            end=(x_sequence_end or "").strip().lower() == "true",
+            now=_now(),
+            ttl=SEQUENCE_TTL,
+        )
+        if result.token is not None:
+            response.headers["X-Sequence-Token"] = result.token
+
+    return guard
+
+
+@app.exception_handler(SequenceError)
+async def sequence_error_handler(_: Request, exc: SequenceError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status, content=exc.body)
+
+
 @app.exception_handler(PlanError)
 async def plan_error_handler(_: Request, exc: PlanError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": {"type": "plan_error", "message": str(exc)}})
@@ -354,6 +421,7 @@ def options() -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans",
+    dependencies=[Depends(sequence_guard("plans"))],
     tags=["plans"],
     summary="Subnetzplan berechnen",
     description="Validiert die übergebene Konfiguration, berechnet VLAN-IDs und Subnetze und liefert Plan, freie Bereiche und Belegungswerte. Die Konfiguration muss `base_network` und mindestens eine Gruppe enthalten. Mit `overrides` lassen sich unterstützte Konfigurationswerte für diese Berechnung überschreiben.",
@@ -369,6 +437,7 @@ def create_plan(request: ConfigRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/extend",
+    dependencies=[Depends(sequence_guard("extend"))],
     tags=["plans"],
     summary="Bestehenden Plan erweitern",
     description="Nimmt ein zuvor von dieser API ausgegebenes Plan-JSON und eine Konfiguration neuer Gruppen entgegen. Bereits belegte Subnetze werden erhalten; die Konfiguration darf `base_network` auslassen, da das Basisnetz aus dem Plan übernommen wird. `access` der neuen Gruppen darf auch bestehende Gruppen referenzieren.",
@@ -390,6 +459,7 @@ def extend_existing_plan(request: ExtendRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/verify",
+    dependencies=[Depends(sequence_guard("verify"))],
     tags=["analysis"],
     summary="Plan formal verifizieren",
     description="Berechnet den Plan und prüft anschließend die implementierten Planeigenschaften. `valid` ist nur dann `true`, wenn `problems` leer ist. Das Ergebnis enthält zusätzlich den geprüften Plan.",
@@ -406,6 +476,7 @@ def verify(request: ConfigRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/stats",
+    dependencies=[Depends(sequence_guard("stats"))],
     tags=["analysis"],
     summary="Belegungsstatistiken berechnen",
     description="Berechnet pro Gruppe die Blockauslastung sowie Mittelwert, Minimum, Gesamtbedarf, belegte Adressen und internen Verschnitt. Die Kennzahlen beziehen sich auf die tatsächlich zugeteilten Subnetzblöcke.",
@@ -421,6 +492,7 @@ def statistics(request: ConfigRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/warnings",
+    dependencies=[Depends(sequence_guard("warnings"))],
     tags=["analysis"],
     summary="Planungshinweise ermitteln",
     description="Prüft unter anderem private Adressbereiche, VPN-Überschneidungen, Auslastungsschwellen und Besonderheiten zustandsloser Cisco-ACLs. `threshold` wird als Prozentwert von 0 bis 100 angegeben.",
@@ -443,6 +515,7 @@ def warnings(request: WarningsRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/firewall",
+    dependencies=[Depends(sequence_guard("firewall"))],
     tags=["firewall"],
     summary="Firewall-Regeln generieren",
     description="Erzeugt einen Regeltext für iptables, nftables oder Cisco-ACLs auf Basis von `access`. Nicht ausdrücklich erlaubter Verkehr wird verworfen. Der Endpunkt gibt Text zurück und spielt Regeln nicht auf einem System ein. Bei IPv6-spezifischen ICMP-Regeln muss das Basisnetz IPv6 sein.",
@@ -458,6 +531,7 @@ def firewall(request: FirewallRequest) -> dict[str, str]:
 
 @app.post(
     f"{API_PREFIX}/plans/roundtrip",
+    dependencies=[Depends(sequence_guard("roundtrip"))],
     tags=["analysis", "firewall"],
     summary="Firewall-Regeln rückübersetzen und prüfen",
     description="Generiert für jedes angeforderte System intern Regeln, liest die Zugriffspaare zurück und vergleicht sie mit der Zugriffsmatrix. `ok` setzt voraus, dass keine Regeln fehlen oder zusätzlich erlaubt werden und Default-Deny erkannt wird. Ohne `firewalls` werden iptables, nftables und Cisco geprüft.",
@@ -484,6 +558,7 @@ def roundtrip(request: RoundtripRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/compare",
+    dependencies=[Depends(sequence_guard("compare"))],
     tags=["analysis"],
     summary="Zwei Zugriffspolitiken vergleichen",
     description="Berechnet zwei Pläne und vergleicht deren Zugriffsmengen exakt sowie zusätzlich mit dem Subgraph Algorithmus. `relation` und `keep` beruhen auf dem exakten Vergleich; `subgraph_agrees` zeigt, ob die heuristische Subgraph-Entscheidung übereinstimmt. Beide Konfigurationen müssen die Gruppen enthalten, deren Zugriffspolitik verglichen wird.",
@@ -510,6 +585,7 @@ def _service_payload(sigma: ServiceSet) -> list[str]:
 
 @app.post(
     f"{API_PREFIX}/plans/compare-services",
+    dependencies=[Depends(sequence_guard("compare-services"))],
     tags=["analysis"],
     summary="Freigegebene Dienste zweier Pläne vergleichen",
     description="Berechnet zwei Pläne und vergleicht je Zugriffspaar die freigegebenen Protokolle und Ports exakt (Teilmengenprüfung je Protokoll). Ein Paar ohne Einschränkung gibt alle Dienste frei, ein Paar ohne Freigabe keinen. `relation` ist `equal`, `a_in_b`, `b_in_a` oder `incomparable`; `differences` nennt die Paare mit unterschiedlicher Dienstmenge. Die Gruppen werden über ihre Namen zugeordnet.",
@@ -536,6 +612,7 @@ def compare_services(request: CompareRequest) -> dict[str, Any]:
 
 @app.post(
     f"{API_PREFIX}/plans/verdict",
+    dependencies=[Depends(sequence_guard("verdict"))],
     tags=["analysis"],
     summary="Paketfluss anhand des Plans beurteilen",
     description="Ermittelt die Quell- und Zielgruppe anhand einzelner IP-Adressen und entscheidet `accept` oder `drop`. Etablierte Verbindungen werden in der zustandsbehafteten Semantik angenommen; neue Verbindungen benötigen eine passende `access`-Freigabe. Mit `ingress_group` wird zusätzlich das Urteil der eingehenden Cisco-ACL berechnet.",

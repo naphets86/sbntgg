@@ -22,6 +22,7 @@
 - [Voraussetzungen](#voraussetzungen)
 - [Installation](#installation)
 - [JSON API](#json-api)
+- [Sequenzprüfung](#sequenzprüfung)
 - [Funktionen](#funktionen)
 - [Experimente](#experimente)
 - [Tests](#tests)
@@ -300,11 +301,12 @@ Die Mathematik (Normalform, Zerlegung in höchstens 30 Portblöcke, Lücken, Üb
 | `src/stats.py` | Auslastung, Verschnitt, Poisson-Dimensionierung |
 | `src/checks.py` | Warnungen (privater Bereich, VPN-Überschneidung, Auslastung) |
 | `src/policy.py` | Richtlinienvergleich, nutzt den Subgraph Algorithmus (Dependency) |
+| `src/sequence.py` | Sequenzprüfung: Soll-Graph, zustandsloses Token, Fehler beim Betreten und Verlassen, Verifikation von Spuren (Abschnitt [Sequenzprüfung](#sequenzprüfung)) |
 | `src/cli.py` | Kommandozeile |
 | `src/experiments.py` | reproduzierbare Experimente (`python -m src.experiments`), nicht Teil der Testabdeckung |
 | `src/results/` | Ergebnisse der Experimente als JSON, dazu `summary.json` |
 | `web/api.py` | FastAPI-JSON-API (Version 4.0.0) für Planung und Auswertung |
-| `tests/` | pytest-Tests |
+| `tests/` | pytest-Tests, darunter `test_sequence.py` (Sequenzprüfung) und `test_web_sequence.py` (Sequenzprüfung über die API) |
 | `science/` | wissenschaftliche Arbeit „Der Subnetz Algorithmus“ (`sbntgg.tex`, `sbntgg.pdf`) |
 | `examples/` | Beispielkonfiguration `config.example.yaml` (fünf Gruppen), ausführlich beschrieben im Abschnitt [Beispielkonfiguration](#beispielkonfiguration) |
 | `doc/coverage/` | HTML-Bericht der Testabdeckung (wird beim Testlauf erzeugt) |
@@ -368,6 +370,238 @@ curl -X POST http://127.0.0.1:8000/api/v1/plans \
 Die `POST`-Endpunkte erwarten `config` (dieselben Schlüssel wie in der Konfigurationsdatei) und optional `overrides`; `compare` nimmt stattdessen `config_a`, `config_b`, `overrides_a` und `overrides_b`, `extend` zusätzlich den bisherigen `plan`. Fachliche Validierungsfehler
 werden mit HTTP 422 als JSON unter `error.type` und `error.message` zurückgegeben; ungültige Feldtypen weist FastAPI ebenfalls mit 422 ab (Schema `detail`). `compare` antwortet mit HTTP 503, wenn der Subgraph Algorithmus nicht verfügbar ist.
 
+Die `POST`-Endpunkte akzeptieren zusätzlich optional die Kopfzeilen `X-Sequence-Start`, `X-Sequence-Token` und `X-Sequence-End`; sie prüfen dann, ob der Request an dieser Stelle einer Folge zulässig ist, und antworten bei einem Verstoß mit HTTP 409 (siehe [Sequenzprüfung](#sequenzprüfung)).
+
+## Sequenzprüfung
+
+Ein einzelner Request an einen einzelnen Endpunkt ist zustandslos: Er hat kein Davor und kein Danach. Ein Prozess ist es nicht.
+„Plan berechnen, prüfen, Regeln erzeugen, zurückprüfen, später erweitern“ ist eine **Folge** von Requests, und ihre Reihenfolge hat Bedeutung:
+
+- Erweitert man einen Plan zweimal, hängen die vergebenen Adressen von der Reihenfolge der Erweiterungen ab (zuerst Gruppe G1 oder zuerst Gruppe G3 ergibt zwei verschiedene Pläne mit denselben Gruppen).
+- Ein erweiterter Plan ist im Allgemeinen nicht der Plan, den eine Neuplanung derselben Gruppen ergibt (bestehende Netze bleiben bei `extend` gerade unverändert). `verify`, `stats`, `warnings`, `firewall`, `roundtrip` und `verdict` berechnen den Plan aus der Konfiguration **neu**; Regeln, die nach einer Erweiterung aus der Konfiguration erzeugt werden, gehören deshalb nicht zwingend zu dem Plan, den der Client hält.
+
+Die Sequenzprüfung macht diese Reihenfolge prüfbar, **ohne die Zustandslosigkeit der API aufzugeben**. Sie ist **optional**: Wer keine der Kopfzeilen `X-Sequence-*` sendet, erhält das bisherige Verhalten jedes Endpunkts. Die Schemata der Requests ändern sich nicht.
+
+### Zwei Fehler, die es nur bei Folgen gibt
+
+Bei einem einzelnen Endpunkt gibt es nur den Fehler des Requests selbst (422, 503, 413). Eine Folge kann zusätzlich auf zwei Arten verletzt werden, und beide gehen als Fehlermeldung an den Requester:
+
+| Verstoß | Bedeutung | Fehlertyp |
+| --- | --- | --- |
+| **Unzulässiges Betreten** | Die Folge beginnt mit einem Endpunkt, der kein Einstieg ist (zum Beispiel `extend` ohne vorherigen `plans`-Aufruf) | `sequence/entry_invalid` |
+| **Unplanmäßiges Verlassen** | Die Folge weicht vom Soll-Verlauf ab (`sequence/transition_invalid`), endet an einer unzulässigen Stelle (`sequence/end_invalid`) oder wird nach Ablauf der Frist fortgesetzt (`sequence/abandoned_late`) | siehe [Fehlermeldungen](#fehlermeldungen) |
+
+Die Meldung nennt jeweils, **was** passiert ist, **wo** in der Folge der Client steht (letzter gültiger Schritt) und **wie** er weitermachen kann (die zulässigen Nachfolger).
+
+### Funktionsweise
+
+Der Zustand der Folge liegt beim Client, nicht im Server. Jede gültige Antwort enthält ein **Token** in der Kopfzeile `X-Sequence-Token`. Es enthält die Kennung der Folge, die Zahl der bisherigen Schritte, den letzten Endpunkt und die Frist, und es ist mit HMAC-SHA256 signiert. Der Client sendet es im nächsten Request zurück. Der Server prüft die Signatur, die Frist und ob der Übergang `letzter Endpunkt → dieser Endpunkt` im **Soll-Graphen** liegt. Er speichert nichts: Die Prüfung ist eine reine Funktion von (Endpunkt, Kopfzeilen, Uhrzeit), jeder Worker kann jeden Schritt prüfen, und mehrere Folgen beeinflussen sich nicht.
+
+| Kopfzeile | Richtung | Bedeutung |
+| --- | --- | --- |
+| `X-Sequence-Start` | Request | Kennung der Folge, 1 bis 64 Zeichen aus `A-Z a-z 0-9 . _ -`; nur im ersten Schritt |
+| `X-Sequence-Token` | Request | Token aus der Antwort des vorigen Schritts; ab dem zweiten Schritt |
+| `X-Sequence-End` | Request | `true` markiert diesen Schritt als letzten der Folge |
+| `X-Sequence-Token` | Antwort | Token für den nächsten Schritt; nach dem letzten Schritt gibt es keines mehr |
+
+Die Prüfung läuft vor der Planberechnung und gilt für alle zehn `POST`-Endpunkte (`plans`, `plans/extend`, `plans/verify`, `plans/stats`, `plans/warnings`, `plans/firewall`, `plans/roundtrip`, `plans/compare`, `plans/compare-services`, `plans/verdict`); `GET /health` und `GET /options` gehören nicht zu einer Folge. Die Kopfzeilen erscheinen in der OpenAPI-Dokumentation unter `/docs`.
+
+Schlägt ein Endpunkt selbst fehl (zum Beispiel 422 wegen einer ungültigen Konfiguration), gibt er **kein neues Token** aus: Der Schritt zählt nicht, und das bisherige Token bleibt bis zu seiner Frist gültig, sodass der Client den Schritt korrigiert wiederholen kann.
+
+### Beispiel
+
+```bash
+API=http://127.0.0.1:8000/api/v1
+CFG='{"base_network":"10.20.0.0/16","groups":[{"name":"Server","hosts":40},{"name":"Buero","hosts":120,"access":["Server"]}]}'
+tok() { grep -i '^x-sequence-token:' headers.txt | awk '{print $2}' | tr -d '\r'; }
+post() { curl -s -D headers.txt -o out.json -X POST "$API/$1" -H 'Content-Type: application/json' -d "$2" "${@:3}"; }
+
+# 1. Folge beginnen: Plan berechnen (Kennung der Folge im ersten Schritt)
+post plans "{\"config\":$CFG}" -H 'X-Sequence-Start: rollout-2026-10'
+
+# 2. Plan prüfen (Token des vorigen Schritts)
+post plans/verify "{\"config\":$CFG}" -H "X-Sequence-Token: $(tok)"
+
+# 3. Regeln erzeugen
+post plans/firewall "{\"config\":$CFG,\"firewall\":\"nftables\"}" -H "X-Sequence-Token: $(tok)"
+
+# 4. Rückprüfen und die Folge beenden
+post plans/roundtrip "{\"config\":$CFG}" -H "X-Sequence-Token: $(tok)" -H 'X-Sequence-End: true'
+```
+
+Die Hilfsfunktion `tok` liest das Token des vorigen Schritts aus der zuletzt gespeicherten Antwort, bevor `curl` die Datei neu schreibt. Ohne die Kopfzeilen sind alle vier Aufrufe gewöhnliche Einzelrequests.
+
+### Standard-Soll-Graph
+
+Der Soll-Graph beschreibt die zulässigen Folgen als gerichteten Graphen: Knoten sind die Endpunkte sowie `START` und `ENDE`, Kanten die zulässigen Übergänge. Der Standard bildet den Prozess „planen, prüfen, Regeln erzeugen, zurückprüfen, erweitern“ ab. **Er ist eine Annahme über den Prozess und lässt sich ersetzen** (siehe [Konfiguration](#konfiguration-der-sequenzprüfung)).
+
+```mermaid
+flowchart LR
+    START --> plans
+    plans --> A["verify, stats,<br/>warnings, verdict"]
+    A --> A
+    plans --> firewall
+    A --> firewall
+    firewall --> roundtrip
+    plans --> extend
+    A --> extend
+    extend --> A
+    extend --> extend
+    roundtrip --> extend
+    roundtrip --> compare["compare,<br/>compare-services"]
+    roundtrip --> verdict
+    plans --> ENDE
+    A --> ENDE
+    extend --> ENDE
+    roundtrip --> ENDE
+    compare --> ENDE
+```
+
+Das Diagramm fasst die vier Analyse-Endpunkte zusammen. Maßgeblich sind die Nachfolger je Knoten:
+
+| Nach … | zulässig sind |
+| --- | --- |
+| `START` | `plans` |
+| `plans` | `verify`, `stats`, `warnings`, `verdict`, `firewall`, `extend`, `ENDE` |
+| `verify`, `stats`, `warnings`, `verdict` | `verify`, `stats`, `warnings`, `verdict`, `firewall`, `extend`, `ENDE` |
+| `firewall` | `roundtrip` |
+| `roundtrip` | `verdict`, `extend`, `compare`, `compare-services`, `ENDE` |
+| `extend` | `verify`, `stats`, `warnings`, `verdict`, `extend`, `ENDE` |
+| `compare`, `compare-services` | `ENDE` |
+
+Was die Einschränkungen ausdrücken:
+
+- **`plans` ist der einzige Einstieg.** Alle anderen Endpunkte setzen einen berechneten Plan voraus.
+- **`firewall` folgt nicht auf `extend`.** Die Firewall-Regeln werden aus der Konfiguration neu geplant, nicht aus dem erweiterten Plan; wer Regeln für den erweiterten Plan braucht, muss die vergebenen Netze in die Konfiguration übernehmen (Feld `network` je Gruppe) und eine neue Folge beginnen.
+- **`roundtrip` folgt nur auf `firewall`.** Zurückgeprüft wird, was erzeugt wurde.
+- **`compare` und `compare-services` beenden die Folge.** Sie vergleichen zwei Konfigurationen und liefern ein Endergebnis.
+
+### Fehlermeldungen
+
+Alle Sequenzfehler haben das Schema `{"status": ..., "error": {"type": ..., "message": ..., ...}}`. Die Statuscodes sind: **409** (Konflikt mit dem Stand der Folge), **422** (die Kennung der Folge ist ungültig) und **503** (die Prüfung ist nicht eingerichtet).
+
+| `error.type` | HTTP | Ursache | zusätzliche Felder | Reaktion des Clients |
+| --- | --- | --- | --- | --- |
+| `sequence/entry_invalid` | 409 | Betreten mit einem Endpunkt, der kein Einstieg ist | `endpoint`, `allowed_entries` | mit einem zulässigen Einstieg beginnen |
+| `sequence/transition_invalid` | 409 | Endpunkt ist kein zulässiger Nachfolger des letzten Schritts | `last_valid_step`, `endpoint`, `expected_next` | einen Endpunkt aus `expected_next` aufrufen oder neu beginnen |
+| `sequence/end_invalid` | 409 | `X-Sequence-End: true` an einer Stelle, an der die Folge nicht enden darf | `endpoint`, `expected_next` | Folge fortsetzen |
+| `sequence/abandoned_late` | 409 | Folge nach Ablauf der Frist fortgesetzt | `last_valid_step`, `expired_at`, `steps_done` | neue Folge beginnen |
+| `sequence/context_invalid` | 409 | Token nicht lesbar, verändert, mit anderem Schlüssel oder aus einer anderen Fassung des Soll-Graphen erzeugt, oder Kennung passt nicht zum Token | – | neue Folge beginnen |
+| `sequence/start_invalid` | 422 | Beim Betreten fehlt die Kennung oder sie ist ungültig | – | gültige Kennung senden |
+| `sequence/not_configured` | 503 | Kopfzeilen `X-Sequence-*` gesendet, aber `SUBNETPLAN_SEQUENCE_KEY` ist nicht gesetzt | – | Betreiber muss die Prüfung einrichten |
+
+Beispiele (Ausgabe des Moduls `src/sequence.py`):
+
+Betreten ohne Einstieg:
+
+```json
+{"status": 409, "error": {"type": "sequence/entry_invalid",
+  "message": "Die Folge darf nicht mit 'verify' beginnen",
+  "endpoint": "verify", "allowed_entries": ["plans"]}}
+```
+
+Unplanmäßiges Verlassen (`firewall` nach `extend`):
+
+```json
+{"status": 409, "error": {"type": "sequence/transition_invalid",
+  "message": "Nach 'extend' ist 'firewall' nicht zulässig",
+  "last_valid_step": "extend", "endpoint": "firewall",
+  "expected_next": ["ENDE", "extend", "stats", "verdict", "verify", "warnings"]}}
+```
+
+Unzulässiges Ende:
+
+```json
+{
+  "status": 409,
+  "error": {
+    "type": "sequence/end_invalid",
+    "message": "Die Folge darf nicht nach 'firewall' enden",
+    "endpoint": "firewall",
+    "expected_next": [
+      "roundtrip"
+    ]
+  }
+}
+```
+
+Frist abgelaufen:
+
+```json
+{"status": 409, "error": {"type": "sequence/abandoned_late",
+  "message": "Die Folge wurde nach Ablauf der Frist fortgesetzt; ein neuer Beginn ist nötig",
+  "last_valid_step": "plans", "expired_at": 1600, "steps_done": 1}}
+```
+
+Der Fehlertyp `sequence/abandoned_late` wird bei der **nächsten** Anfrage mit dem alten Token gemeldet. Wenn der Client nie wieder anfragt, erfährt niemand vom Abbruch, weil die API zustandslos ist und nichts über offene Folgen weiß. Eine **proaktive** Meldung des Abbruchs (Rückruf oder Statusabfrage) braucht eine getrennte, zustandsbehaftete Komponente und ist nicht Teil dieser Umsetzung.
+
+### Konfiguration der Sequenzprüfung
+
+| Umgebungsvariable | Bedeutung | Standard |
+| --- | --- | --- |
+| `SUBNETPLAN_SEQUENCE_KEY` | geheimer Schlüssel zum Signieren der Tokens; **ohne ihn antwortet die API auf Anfragen mit `X-Sequence-*` mit 503** | nicht gesetzt |
+| `SUBNETPLAN_SEQUENCE_TTL` | Frist in Sekunden zwischen zwei Schritten einer Folge | `600` |
+| `SUBNETPLAN_SEQUENCE_GRAPH` | Pfad zu einer JSON-Datei mit einem eigenen Soll-Graphen | eingebauter Standard |
+
+Der Schlüssel muss auf **allen** Instanzen und Workern identisch sein, sonst erkennt ein anderer Worker das Token nicht. Ein Schlüssel lässt sich so erzeugen:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+export SUBNETPLAN_SEQUENCE_KEY=...
+```
+
+Ein Schlüsselwechsel macht alle offenen Folgen ungültig (`sequence/context_invalid`).
+
+Ein eigener Soll-Graph ist eine JSON-Datei mit den Kanten:
+
+```json
+{"edges": [["START", "plans"], ["plans", "verify"], ["plans", "firewall"],
+           ["verify", "firewall"], ["firewall", "roundtrip"],
+           ["roundtrip", "ENDE"]]}
+```
+
+Beim Start wird der Graph geprüft: `START` braucht mindestens einen Nachfolger, in `START` darf keine Kante münden, von `ENDE` darf keine ausgehen, `ENDE` muss von `START` erreichbar sein, und jeder Knoten muss von `START` aus erreichbar sein und einen Weg nach `ENDE` haben. Andernfalls startet die API nicht. Weil die Tokens den Fingerabdruck des Graphen tragen, werden Tokens aus einer früheren Fassung nach einer Änderung abgewiesen.
+
+### Verifikation gegen den Soll-Graphen
+
+Die Prüfung im Betrieb sagt, ob **ein** Schritt zulässig ist. Die Verifikation sagt, ob **alle beobachteten Folgen** und damit das System dem Soll-Verlauf entsprechen. Aus den beobachteten Spuren entsteht der **Ist-Graph** (Kante `START → e1`, `e1 → e2`, …), und alle Spuren sind planmäßig genau dann, wenn der Ist-Graph ein **Teilgraph** des Soll-Graphen ist, das heißt, wenn jede beobachtete Kante im Soll-Graphen liegt.
+
+```python
+from subnetplan.sequence import DEFAULT_GRAPH, verify_traces
+
+spuren = [
+    ["plans", "verify", "firewall", "roundtrip", "ENDE"],
+    ["plans", "extend", "verify", "ENDE"],
+]
+ergebnis = verify_traces(DEFAULT_GRAPH, spuren)
+print(ergebnis.ok)         # True: alle Kanten liegen im Soll-Graphen
+print(ergebnis.outside)    # (): keine Kante außerhalb
+print(len(ergebnis.uncovered))  # 42 von 50 Soll-Kanten sind noch nicht durchlaufen
+
+ergebnis = verify_traces(DEFAULT_GRAPH, [["plans", "extend", "firewall"]])
+print(ergebnis.ok, ergebnis.outside)   # False (('extend', 'firewall'),)
+```
+
+Drei Verwendungen:
+
+- **Spuren prüfen.** Die Szenariotests (oder Zugriffsprotokolle mit Folgenkennung) liefern Spuren; `verify_traces` meldet jede Kante außerhalb des Soll-Graphen.
+- **Kantenabdeckung.** `uncovered` nennt die Soll-Kanten, die keine Spur durchläuft. Sind es keine, ist jeder zulässige Übergang mindestens einmal getestet.
+- **Änderungen des Soll-Graphen.** `missing_after_update(alt, neu)` liefert die Kanten des alten Graphen, die der neue nicht mehr enthält. Ist das Ergebnis leer, bleiben alle bisher zulässigen Folgen zulässig, weil der alte Soll-Graph Teilgraph des neuen ist.
+
+**Zusammenhang mit dem Subgraph Algorithmus.** Die Verifikation ist die Teilgraph-Beziehung zwischen Ist- und Soll-Graph. Hier wird sie als **exakte Kanteninklusion** auf benannten Knoten berechnet. Der Subgraph Algorithmus (Abhängigkeit `subgraph`) vergleicht dagegen Spaltensignaturen und ist eine Heuristik, die einen Teilgraphen übersehen oder einen falschen melden kann (siehe auch den Sicherheitshinweis in `src/policy.py`). Ein Gegenbeispiel: `G` mit der Kante 0→1 und `G'` mit der Kante 0→2 (je vier Knoten) liefern `equal_keep_A`, obwohl keiner der Graphen im anderen enthalten ist. Für die Verifikation von Folgen ist deshalb die exakte Prüfung verbindlich. `adjacency(graph, knoten)` liefert die Adjazenzmatrizen über einer gemeinsamen Knotenfolge, falls beide Verfahren nebeneinander verglichen werden sollen.
+
+### Eigenschaften und Grenzen
+
+- **Zustandslos.** Der Server speichert nichts; die Prüfung ist eine reine Funktion von (Endpunkt, Kopfzeilen, Uhrzeit). Dasselbe Token zur selben Zeit ergibt dieselbe Antwort, und gleichzeitige Folgen beeinflussen sich nicht.
+- **Das Token ist signiert, nicht verschlüsselt.** Es besteht aus Base64-codiertem JSON und verrät Kennung, Schrittzahl, letzten Endpunkt und Frist. Es enthält keine Konfigurationsdaten. Die Signatur verhindert Veränderungen, sie verbirgt nichts.
+- **Das Token beweist die Reihenfolge, nicht die Fachlichkeit.** Es bindet nicht an den Inhalt der Requests: Wer `extend` mit einem anderen Plan aufruft als dem aus dem vorigen Schritt, wird nicht bemerkt.
+- **Kein Einmal-Token.** Ein Token lässt sich bis zum Ablauf der Frist mehrfach verwenden (zum Beispiel zweimal dasselbe Nachfolger-Request). Das zu verhindern, bräuchte einen serverseitigen Zustand.
+- **Uhren.** Die Frist wird mit der Uhr des prüfenden Servers verglichen. Bei mehreren Instanzen müssen die Uhren abgeglichen sein.
+- **Soll-Graph und Datenfluss.** Dass der Soll-Graph zum tatsächlichen Datenfluss zwischen den Endpunkten passt, wird nicht geprüft. Die Verifikation bestätigt die Übereinstimmung mit dem Modell, nicht die Richtigkeit des Modells.
+- **Nicht enthalten:** die proaktive Meldung abgebrochener Folgen, eine Ablage der Folgen und Bedingungen mit Gedächtnis (zum Beispiel „höchstens ein `extend` je Rollout“).
+
+Das zugrunde liegende Konzept (Zustandslosigkeit des Requests gegen Zustand der Folge, Betreten und Verlassen, Verifikation durch Teilgraph-Vergleich) ist im Dokument „REST-API, Zustandslosigkeit und die Sequenz von Requests“ ausführlich hergeleitet.
+
 ## Funktionen
 
 Alle Funktionen stehen auf der Kommandozeile (`subnetplan`) und, soweit angegeben, in der [JSON API](#json-api) bereit. Gemeinsam ist ihnen, dass Plan und Firewall-Regeln aus derselben Konfiguration berechnet werden.
@@ -426,6 +660,10 @@ Die Berichte erscheinen auf stderr, damit die Standardausgabe maschinenlesbar bl
 
 `--compare` vergleicht die Zugriffsrichtlinien exakt und zusätzlich mit dem Subgraph Algorithmus. Dessen Ergebnis ist eine Heuristik und wird gesondert ausgewiesen; maßgeblich ist die exakte Prüfung.
 
+### Sequenzprüfung
+
+Optionale, zustandslose Prüfung von Folgen von Requests: Soll-Graph der zulässigen Übergänge, signiertes Token im Header, Fehlermeldungen beim unzulässigen Betreten und beim unplanmäßigen Verlassen sowie Verifikation beobachteter Spuren als Teilgraph-Vergleich ([Sequenzprüfung](#sequenzprüfung)).
+
 ### JSON API und Experimente
 
 Planberechnung, Erweiterung, Firewall-Regeln, Verifikation, Statistiken, Warnungen, Roundtrip, Richtlinien- und Dienstvergleich sowie Paketurteile sind als Endpunkte der [JSON API](#json-api) verfügbar. Die reproduzierbaren Versuche zur Arbeit starten mit `python -m src.experiments` (siehe [Experimente](#experimente)).
@@ -460,7 +698,13 @@ Das Laufzeit- und das eigenständige IPv6-Skalierungsexperiment wurden **nicht**
 pytest
 ```
 
-Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`. Die Tests umfassen auch die JSON API (`tests/test_web_api.py`, mit dem FastAPI-`TestClient`). Ausgenommen von der Messung sind `tests/`, `doc/` und `src/experiments.py`.
+Die Konfiguration in `pyproject.toml` setzt `tests` als Testverzeichnis, `.` und `src` als Importpfade und erzeugt einen Coverage-Bericht mit Zweigabdeckung im Terminal sowie als HTML unter `doc/coverage/`. Die Tests umfassen auch die JSON API (`tests/test_web_api.py`, mit dem FastAPI-`TestClient`).
+
+Die Sequenzprüfung hat zwei Testdateien: `tests/test_sequence.py` prüft den Kern ohne FastAPI (Validierung des Soll-Graphen, Betreten, Übergänge, Ende, Frist, manipulierte und fremde Tokens, jede Kante des Standard-Soll-Graphen einzeln, Unabhängigkeit verschränkter Folgen, Übereinstimmung von Wächter und Verifikation auf Zufallsspuren, Kantenabdeckung, Änderung des Soll-Graphen). `tests/test_web_sequence.py` prüft die Anbindung über den `TestClient` (Einzelrequests unverändert, vollständige Folge, 409-Antworten, 422 und 503, Verhalten bei fehlgeschlagenem Schritt, eigener Soll-Graph, OpenAPI-Beschreibung).
+
+```bash
+pytest tests/test_sequence.py tests/test_web_sequence.py
+``` Ausgenommen von der Messung sind `tests/`, `doc/` und `src/experiments.py`.
 
 ## Wissenschaftliche Arbeit
 

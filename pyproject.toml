@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "subnetplan"
-version = "4.0.0"
+version = "4.1.0"
 description = "Automatisches Subnetting für Mitarbeitergruppen mit Firewall-Regeln (iptables, nftables, Cisco-ACL) und JSON-API"
 authors = [
     { name = "Stephan Epp" }
